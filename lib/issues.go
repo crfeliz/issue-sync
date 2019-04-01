@@ -2,6 +2,7 @@ package lib
 
 import (
 	"github.com/coreos/issue-sync/lib/issuesyncgithub"
+	"github.com/coreos/issue-sync/lib/models"
 	"strings"
 	"time"
 
@@ -58,7 +59,7 @@ func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClien
 			}
 		}
 		if !found {
-			if err := CreateIssue(config, ghIssue, ghClient, jiraClient); err != nil {
+			if err := CreateIssue(config, ghIssue.Issue, ghClient, jiraClient); err != nil {
 				log.Errorf("Error creating issue for #%d. Error: %v", *ghIssue.Number, err)
 			}
 		}
@@ -74,7 +75,7 @@ func jiraCustomFieldsNeedUpdate(jIssue jira.Issue, fieldKey string, githubFieldV
 
 // DidIssueChange tests each of the relevant fields on the provided JIRA and GitHub issue
 // and returns whether or not they differ.
-func DidIssueChange(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue) bool {
+func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue jira.Issue) bool {
 	log := config.GetLogger()
 
 	log.Debugf("Comparing GitHub issue #%d and JIRA issue %s", ghIssue.GetNumber(), jIssue.Key)
@@ -92,6 +93,7 @@ func DidIssueChange(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue) 
 	ghLabelsString := strings.Join(ghLabels, ",")
 
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(jIssue, config.GetFieldKey(cfg.GitHubLabels), ghLabelsString)
+	anyDifferent = anyDifferent || (ghIssue.ProjectCard != nil && jIssue.Fields.Status.Name != ghIssue.ProjectCard.GetColumnName())
 	log.Debugf("Issues have any differences: %b", anyDifferent)
 
 	return anyDifferent
@@ -100,7 +102,7 @@ func DidIssueChange(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue) 
 // UpdateIssue compares each field of a GitHub issue to a JIRA issue; if any of them
 // differ, the differing fields of the JIRA issue are updated to match the GitHub
 // issue.
-func UpdateIssue(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue, ghClient issuesyncgithub.Client, jClient issuesyncjira.Client) error {
+func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue jira.Issue, ghClient issuesyncgithub.Client, jClient issuesyncjira.Client) error {
 	log := config.GetLogger()
 
 	log.Debugf("Updating JIRA %s with GitHub #%d", jIssue.Key, *ghIssue.Number)
@@ -133,6 +135,13 @@ func UpdateIssue(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue, ghC
 
 		var err error
 
+		if ghIssue.ProjectCard != nil {
+			err = issuesyncjira.TryApplyTransitionWithName(jClient, jIssue, ghIssue.ProjectCard.GetColumnName())
+			if err != nil {
+				return err
+			}
+		}
+
 		issue, err = issuesyncjira.UpdateIssue(jClient, issue)
 		if err != nil {
 			return err
@@ -149,7 +158,7 @@ func UpdateIssue(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue, ghC
 		return err
 	}
 
-	if err := CompareComments(config, ghIssue, issue, ghClient, jClient); err != nil {
+	if err := CompareComments(config, ghIssue.Issue, issue, ghClient, jClient); err != nil {
 		return err
 	}
 
