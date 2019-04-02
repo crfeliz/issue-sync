@@ -1,12 +1,13 @@
 package lib
 
 import (
+	"github.com/coreos/issue-sync/lib/issuesyncgithub"
+	"github.com/coreos/issue-sync/lib/issuesyncjira"
 	"regexp"
 	"strconv"
 
 	"github.com/andygrunwald/go-jira"
 	"github.com/coreos/issue-sync/cfg"
-	"github.com/coreos/issue-sync/lib/clients"
 	"github.com/google/go-github/github"
 )
 
@@ -23,7 +24,7 @@ var jCommentIDRegex = regexp.MustCompile("^Comment \\[\\(ID (\\d+)\\)\\|")
 // CompareComments takes a GitHub issue, and retrieves all of its comments. It then
 // matches each one to a comment in `existing`. If it finds a match, it calls
 // UpdateComment; if it doesn't, it calls CreateComment.
-func CompareComments(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue, ghClient clients.GitHubClient, jClient clients.JIRAClient) error {
+func CompareComments(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue, ghClient issuesyncgithub.Client, jClient issuesyncjira.Client) error {
 	log := config.GetLogger()
 
 	if ghIssue.GetComments() == 0 {
@@ -69,7 +70,7 @@ func CompareComments(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue,
 			continue
 		}
 
-		comment, err := jClient.CreateComment(jIssue, *ghComment, ghClient)
+		comment, err := issuesyncjira.CreateComment(jClient, jIssue, *ghComment, ghClient)
 		if err != nil {
 			return err
 		}
@@ -83,7 +84,7 @@ func CompareComments(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue,
 
 // UpdateComment compares the body of a GitHub comment with the body (minus header)
 // of the JIRA comment, and updates the JIRA comment if necessary.
-func UpdateComment(config cfg.Config, ghComment github.IssueComment, jComment jira.Comment, jIssue jira.Issue, ghClient clients.GitHubClient, jClient clients.JIRAClient) error {
+func UpdateComment(config cfg.Config, ghComment github.IssueComment, jComment jira.Comment, jIssue jira.Issue, ghClient issuesyncgithub.Client, jClient issuesyncjira.Client) error {
 	log := config.GetLogger()
 
 	// fields[0] is the whole body, 1 is the ID, 2 is the username, 3 is the real name (or "" if none)
@@ -94,7 +95,7 @@ func UpdateComment(config cfg.Config, ghComment github.IssueComment, jComment ji
 		return nil
 	}
 
-	comment, err := jClient.UpdateComment(jIssue, jComment.ID, ghComment, ghClient)
+	comment, err := issuesyncjira.UpdateComment(jClient, jIssue, jComment.ID, ghComment, ghClient)
 	if err != nil {
 		return err
 	}
