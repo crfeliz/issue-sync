@@ -1,4 +1,4 @@
-package clients
+package issuesyncjira
 
 import (
 	"context"
@@ -74,7 +74,7 @@ func oauthConfig(config cfg.Config) (oauth1.Config, error) {
 		ConsumerKey: config.GetConfigString("jira-consumer-key"),
 		CallbackURL: "oob",
 		Endpoint: oauth1.Endpoint{
-			RequestTokenURL: fmt.Sprintf("%splugins/servlet/oauth/request-token", uri),
+			RequestTokenURL: fmt.Sprintf("%splugins/servlet/oauth/retry-token", uri),
 			AuthorizeURL:    fmt.Sprintf("%splugins/servlet/oauth/authorize", uri),
 			AccessTokenURL:  fmt.Sprintf("%splugins/servlet/oauth/access-token", uri),
 		},
@@ -104,12 +104,12 @@ func jiraTokenFromConfig(config cfg.Config) (*oauth1.Token, bool) {
 	}, true
 }
 
-// jiraTokenFromWeb performs an OAuth handshake, obtaining a request and
+// jiraTokenFromWeb performs an OAuth handshake, obtaining a retry and
 // then an access token by authorizing with the JIRA REST API.
 func jiraTokenFromWeb(config oauth1.Config) (*oauth1.Token, error) {
 	requestToken, requestSecret, err := config.RequestToken()
 	if err != nil {
-		return nil, fmt.Errorf("unable to get request token: %v", err)
+		return nil, fmt.Errorf("unable to get retry token: %v", err)
 	}
 
 	authURL, err := config.AuthorizationURL(requestToken)

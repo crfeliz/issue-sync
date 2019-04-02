@@ -1,12 +1,13 @@
 package cmd
 
 import (
+	"github.com/coreos/issue-sync/lib/issuesyncgithub"
+	"github.com/coreos/issue-sync/lib/issuesyncjira"
 	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/coreos/issue-sync/cfg"
 	"github.com/coreos/issue-sync/lib"
-	"github.com/coreos/issue-sync/lib/clients"
 	"github.com/spf13/cobra"
 )
 
@@ -32,11 +33,11 @@ var RootCmd = &cobra.Command{
 
 		log := config.GetLogger()
 
-		jiraClient, err := clients.NewJIRAClient(&config)
+		jiraClient, err := issuesyncjira.NewClient(&config)
 		if err != nil {
 			return err
 		}
-		ghClient, err := clients.NewGitHubClient(config)
+		ghClient, err := issuesyncgithub.NewClient(config)
 		if err != nil {
 			return err
 		}

@@ -1,4 +1,4 @@
-package clients
+package issuesyncgithub
 
 import (
 	"context"
@@ -12,11 +12,12 @@ import (
 	"golang.org/x/oauth2"
 )
 
-// GitHubClient is a wrapper around the GitHub API Client library we
+// Client is a wrapper around the GitHub API Client library we
 // use. It allows us to swap in other implementations, such as a dry run
 // clients, or mock clients for testing.
-type GitHubClient interface {
+type Client interface {
 	ListIssues() ([]github.Issue, error)
+	//GetCurrentProjectCard(issue *github.Issue) (*github.ProjectCard, error)
 	ListComments(issue github.Issue) ([]*github.IssueComment, error)
 	GetUser(login string) (github.User, error)
 	GetRateLimits() (github.RateLimits, error)
@@ -24,7 +25,7 @@ type GitHubClient interface {
 
 // realGHClient is a standard GitHub clients, that actually makes all of the
 // requests against the GitHub REST API. It is the canonical implementation
-// of GitHubClient.
+// of Client.
 type realGHClient struct {
 	config cfg.Config
 	client github.Client
@@ -36,7 +37,7 @@ func (g realGHClient) ListIssues() ([]github.Issue, error) {
 
 	ctx := context.Background()
 
-	user, repo := g.config.GetRepo()
+	user, repoName := g.config.GetRepo()
 
 	// Set it so that it will run the loop once, and it'll be updated in the loop.
 	pages := 1
@@ -44,7 +45,7 @@ func (g realGHClient) ListIssues() ([]github.Issue, error) {
 
 	for page := 1; page <= pages; page++ {
 		is, res, err := g.request(func() (interface{}, *github.Response, error) {
-			return g.client.Issues.ListByRepo(ctx, user, repo, &github.IssueListByRepoOptions{
+			return g.client.Issues.ListByRepo(ctx, user, repoName, &github.IssueListByRepoOptions{
 				Since:     g.config.GetSinceParam(),
 				State:     "all",
 				Sort:      "created",
@@ -68,7 +69,7 @@ func (g realGHClient) ListIssues() ([]github.Issue, error) {
 		for _, v := range issuePointers {
 			// If PullRequestLinks is not nil, it's a Pull Request
 			if v.PullRequestLinks == nil {
-				issuePage = append(issuePage, *v)
+				issuePage = append(issuePage,* v)
 			}
 		}
 
@@ -184,13 +185,13 @@ func (g realGHClient) request(f func() (interface{}, *github.Response, error)) (
 	return ret, res, backoffErr
 }
 
-// NewGitHubClient creates a GitHubClient and returns it; which
+// NewClient creates a Client and returns it; which
 // implementation it uses depends on the configuration of this
 // run. For example, a dry-run clients may be created which does
 // not make any requests that would change anything on the server,
 // but instead simply prints out the actions that it's asked to take.
-func NewGitHubClient(config cfg.Config) (GitHubClient, error) {
-	var ret GitHubClient
+func NewClient(config cfg.Config) (Client, error) {
+	var ret Client
 
 	log := config.GetLogger()
 
