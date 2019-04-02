@@ -16,6 +16,7 @@ import (
 // use. It allows us to swap in other implementations, such as a dry run
 // clients, or mock clients for testing.
 type GitHubClient interface {
+	ListProjects() ([]github.Project, error)
 	ListIssues() ([]github.Issue, error)
 	ListComments(issue github.Issue) ([]*github.IssueComment, error)
 	GetUser(login string) (github.User, error)
@@ -28,6 +29,16 @@ type GitHubClient interface {
 type realGHClient struct {
 	config cfg.Config
 	client github.Client
+}
+
+func (g realGHClient) ListProject() ([]github.Event, error) {
+	log := g.config.GetLogger()
+
+	ctx := context.Background()
+
+	user, repo := g.config.GetRepo()
+
+
 }
 
 // ListIssues returns the list of GitHub issues since the last run of the tool.
