@@ -159,11 +159,6 @@ func (j dryrunJIRAClient) updateIssue(issue *jira.Issue) (*jira.Issue, *jira.Res
 func (j dryrunJIRAClient) addComment(id string, jComment *jira.Comment, jIssue *jira.Issue, ghComment *github.IssueComment, ghUser *github.User) (*jira.Comment, *jira.Response, error) {
 	log := j.config.GetLogger()
 
-	//user, err := github.GetUser(comment.User.GetLogin())
-	//if err != nil {
-	//	return jira.Comment{}, err
-	//}
-
 	body := fmt.Sprintf("Comment (ID %d) from GitHub user %s", ghComment.GetID(), ghUser.GetLogin())
 	if ghUser.GetName() != "" {
 		body = fmt.Sprintf("%s (%s)", body, ghUser.GetName())
