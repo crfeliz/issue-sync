@@ -86,7 +86,12 @@ func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssu
 	anyDifferent = anyDifferent || (ghIssue.GetBody() != jIssue.Fields.Description)
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(jIssue, config.GetFieldKey(cfg.GitHubStatus), ghIssue.GetState())
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(jIssue, config.GetFieldKey(cfg.GitHubReporter), ghIssue.User.GetLogin())
-	ghLabelsString := strings.Join(make([]string, len(ghIssue.Labels)), ",")
+	ghLabels := make([]string, len(ghIssue.Labels))
+	for i, l := range ghIssue.Labels {
+		ghLabels[i] = *l.Name
+	}
+	ghLabelsString := strings.Join(ghLabels, ",")
+
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(jIssue, config.GetFieldKey(cfg.GitHubLabels), ghLabelsString)
 	anyDifferent = anyDifferent || (ghIssue.ProjectCard != nil && jIssue.Fields.Status.Name != ghIssue.ProjectCard.GetColumnName())
 	log.Debugf("Issues have any differences: %b", anyDifferent)
