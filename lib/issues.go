@@ -97,18 +97,16 @@ func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssu
 // UpdateIssue compares each field of a GitHub issue to a JIRA issue; if any of them
 // differ, the differing fields of the JIRA issue are updated to match the GitHub
 // issue.
-func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue models.ExtendedJiraIssue, ghClient issuesyncgithub.Client, jClient issuesyncjira.Client) error {
+func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue jira.Issue, ghClient issuesyncgithub.Client, jClient issuesyncjira.Client) error {
 	log := config.GetLogger()
 
 	log.Debugf("Updating JIRA %s with GitHub #%d", jIssue.Key, *ghIssue.Number)
 
 	var issue jira.Issue
 
-	if DidIssueChange(config, ghIssue, jIssue.Issue) {
+	if DidIssueChange(config, ghIssue, jIssue) {
 		fields := jira.IssueFields{}
 		fields.Unknowns = map[string]interface{}{}
-
-		fields.Status = jIssue.AvailableStatusesByName[ghIssue.ProjectCard.GetColumnName()]
 		fields.Summary = ghIssue.GetTitle()
 		fields.Description = ghIssue.GetBody()
 		fields.Unknowns[config.GetFieldKey(cfg.GitHubStatus)] = ghIssue.GetState()
@@ -131,6 +129,14 @@ func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue m
 		}
 
 		var err error
+
+		if ghIssue.ProjectCard != nil {
+			err = issuesyncjira.TryApplyTransitionWithName(jClient, jIssue, ghIssue.ProjectCard.GetColumnName())
+			if err != nil {
+				return err
+			}
+		}
+
 		issue, err = issuesyncjira.UpdateIssue(jClient, issue)
 		if err != nil {
 			return err

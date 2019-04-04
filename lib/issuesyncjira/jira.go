@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"github.com/coreos/issue-sync/lib/issuesyncgithub"
-	"github.com/coreos/issue-sync/lib/models"
 	"io/ioutil"
 	"net/http"
 	"regexp"
@@ -54,6 +53,8 @@ type Client interface {
 	createIssue(issue *jira.Issue) (*jira.Issue, *jira.Response, error)
 	updateIssue(issue *jira.Issue) (*jira.Issue, *jira.Response, error)
 	addComment(id string, jComment *jira.Comment, jIssue *jira.Issue, ghComment *github.IssueComment, ghUser *github.User) (*jira.Comment, *jira.Response, error)
+	getTransitions(issue jira.Issue) ([]jira.Transition, *jira.Response, error)
+	applyTransition(issue jira.Issue, transition jira.Transition) (*jira.Response, error)
 }
 
 // realJIRAClient is a standard JIRA clients, which actually makes
@@ -77,6 +78,13 @@ func (j realJIRAClient) getConfig() cfg.Config {
 	return j.config
 }
 
+func (j realJIRAClient) getTransitions(issue jira.Issue) ([]jira.Transition, *jira.Response, error) {
+	return j.client.Issue.GetTransitions(issue.ID)
+}
+
+func (j realJIRAClient) applyTransition(issue jira.Issue, transition jira.Transition) (*jira.Response, error) {
+	return j.client.Issue.DoTransition(issue.ID, transition.ID)
+}
 
 func (j realJIRAClient) searchIssues(jql string) (interface{}, *jira.Response, error) {
 	return j.client.Issue.Search(jql, nil)
@@ -99,8 +107,26 @@ func (j realJIRAClient) addComment(id string, jComment *jira.Comment, jIssue *ji
 }
 
 func (j realJIRAClient) do(method string, url string, body interface{}, out interface{}) (*jira.Response, error) {
-	req, _ := j.client.NewRequest(method, url, nil)
+	req, _ := j.client.NewRequest(method, url, body)
 	return j.client.Do(req, out)
+}
+
+// DRY RUN CLIENT
+
+func (j dryrunJIRAClient) getTransitions(issue jira.Issue) ([]jira.Transition, *jira.Response, error) {
+	return j.client.Issue.GetTransitions(issue.ID)
+}
+
+func (j dryrunJIRAClient) applyTransition(issue jira.Issue, transition jira.Transition) (*jira.Response, error) {
+	log := j.config.GetLogger()
+	log.Info("")
+	log.Info("Applying Transition:")
+	log.Infof("  Jira Issue ID: %s", issue.ID)
+	log.Infof("  Transition Id: %s", transition.ID)
+	log.Infof("  Old Status: %s", issue.Fields.Status.Name)
+	log.Infof("  New Satus: %s", transition.To.Name)
+	log.Info("")
+	return nil, nil
 }
 
 func (j dryrunJIRAClient) getConfig() cfg.Config {
@@ -126,9 +152,9 @@ func (j dryrunJIRAClient) createIssue(issue *jira.Issue) (*jira.Issue, *jira.Res
 	log.Infof("  Description: %s", truncate(fields.Description, 50))
 	log.Infof("  GitHub ID: %d", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubID)])
 	log.Infof("  GitHub Number: %d", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubNumber)])
-	log.Infof("  Labels: %s", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubLabels)])
-	log.Infof("  State: %s", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubStatus)])
-	log.Infof("  Reporter: %s", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubReporter)])
+	log.Infof("  GitHub Labels: %s", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubLabels)])
+	log.Infof("  GitHub Status: %s", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubStatus)])
+	log.Infof("  GitHub Reporter: %s", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubReporter)])
 	log.Info("")
 
 	return issue, nil, nil
@@ -313,11 +339,43 @@ func NewClient(config *cfg.Config) (Client, error) {
 	return j, nil
 }
 
+func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) error {
+	log := j.getConfig().GetLogger()
+
+	currentStatusName := strings.ToLower(issue.Fields.Status.Name)
+	targetStatusName := strings.ToLower(statusName)
+	if currentStatusName == targetStatusName {
+		log.Debug("Issue Status is already in sync")
+		return nil
+	}
+
+	transitions, res, err := j.getTransitions(issue)
+
+	if err != nil {
+		log.Errorf("Error retrieving JIRA transitions: %v", err)
+		return getErrorBody(j.getConfig(), res)
+	}
+
+	for _, v := range transitions {
+		if strings.ToLower(v.To.Name) == targetStatusName {
+			log.Info(fmt.Sprintf("Applying transition %s -> %s on issue %s", issue.Fields.Status.Name, v.To.Name, issue.ID))
+			_, err = j.applyTransition(issue, v)
+			if err != nil {
+				log.Errorf("Error retrieving JIRA transitions: %v", err)
+				return getErrorBody(j.getConfig(), res)
+			} else {
+				return nil
+			}
+		}
+	}
+	// TODO: This is where we can decide what to do about invalid transitions
+	return errors.New(fmt.Sprintf("No transition from '%s' to '%s' found for issue %s", issue.Fields.Status.Name, statusName, issue.ID))
+}
 
 // ListIssues returns a list of JIRA issues on the configured project which
 // have GitHub IDs in the provided list. `ids` should be a comma-separated
 // list of GitHub IDs.
-func ListIssues(j Client, ghIssueIds []int64) ([]models.ExtendedJiraIssue, error) {
+func ListIssues(j Client, ghIssueIds []int64) ([]jira.Issue, error) {
 	log := j.getConfig().GetLogger()
 
 	ghIssueIdStrs := make([]string, len(ghIssueIds))
@@ -344,7 +402,7 @@ func ListIssues(j Client, ghIssueIds []int64) ([]models.ExtendedJiraIssue, error
 		return nil, getErrorBody(j.getConfig(), res)
 	}
 
-	var jiraIssues []models.ExtendedJiraIssue
+	var jiraIssues []jira.Issue
 	// simulating a set
 	projectKeySet := make(map[string] bool)
 	jis, ok := ji.([]jira.Issue)
@@ -357,10 +415,8 @@ func ListIssues(j Client, ghIssueIds []int64) ([]models.ExtendedJiraIssue, error
 		projectKeys = append(projectKeys, k)
 	}
 
-	projectStatusMaps, _ := GetStatusMaps(j, projectKeys)
-
 	for _, v := range jis {
-		jiraIssues = append(jiraIssues, models.ExtendedJiraIssue{v, projectStatusMaps[v.Fields.Project.Key]})
+		jiraIssues = append(jiraIssues, v)
 	}
 
 	if !ok {
@@ -368,7 +424,7 @@ func ListIssues(j Client, ghIssueIds []int64) ([]models.ExtendedJiraIssue, error
 		return nil, fmt.Errorf("get JIRA issues failed: expected []jira.Issue; got %T", ji)
 	}
 
-	var issues []models.ExtendedJiraIssue
+	var issues []jira.Issue
 	if len(ghIssueIds) < maxJQLIssueLength {
 		// The issues were already filtered by our JQL, so use as is
 		issues = jiraIssues
@@ -386,27 +442,6 @@ func ListIssues(j Client, ghIssueIds []int64) ([]models.ExtendedJiraIssue, error
 		}
 	}
 	return issues, nil
-}
-
-func GetStatusMaps(j Client, projectKeys []string) (map[string] map[string] *jira.Status, error) {
-
-	projectStatusMaps := make(map[string] map[string] *jira.Status)
-
-	for _, projectKey  := range projectKeys {
-		statuses := new([]jira.Status)
-		url := fmt.Sprintf("rest/api/2/project/%s/statuses", projectKey)
-		_, err := j.do("GET", url, nil, statuses)
-		if err != nil {
-			return nil, err
-		}
-
-		statusMap := make(map[string] *jira.Status)
-		for _, v := range *statuses {
-			statusMap[v.Name] = &v
-		}
-	}
-
-	return projectStatusMaps, nil
 }
 
 // GetIssue returns a single JIRA issue within the configured project
@@ -572,8 +607,8 @@ func UpdateComment(j Client, issue jira.Issue, id string, comment github.IssueCo
 
 	com, res, err := request(j.getConfig(), func() (interface{}, *jira.Response, error) {
 		url := fmt.Sprintf("rest/api/2/issue/%s/comment/%s", issue.Key, id)
-		res, err := j.do("PUT", url, requestBody, jComment)
-		return nil, res, err
+		res, err := j.do("PUT", url, requestBody, nil)
+		return jComment, res, err
 	})
 	if err != nil {
 		log.Errorf("Error updating comment: %v", err)

@@ -84,7 +84,9 @@ func (g realGHClient) ListIssues() ([]models.ExtendedGithubIssue, error) {
 
 	ctx := context.Background()
 
-	user, repo := g.config.GetRepo()
+	user, repoName := g.config.GetRepo()
+
+	repo, _, _ := g.client.Repositories.Get(ctx, user, repoName)
 
 	// Set it so that it will run the loop once, and it'll be updated in the loop.
 	pages := 1
@@ -92,7 +94,7 @@ func (g realGHClient) ListIssues() ([]models.ExtendedGithubIssue, error) {
 
 	for page := 1; page <= pages; page++ {
 		is, res, err := g.request(func() (interface{}, *github.Response, error) {
-			return g.client.Issues.ListByRepo(ctx, user, repo, &github.IssueListByRepoOptions{
+			return g.client.Issues.ListByRepo(ctx, user, repoName, &github.IssueListByRepoOptions{
 				Since:     g.config.GetSinceParam(),
 				State:     "all",
 				Sort:      "created",
@@ -118,7 +120,7 @@ func (g realGHClient) ListIssues() ([]models.ExtendedGithubIssue, error) {
 			if v.PullRequestLinks == nil {
 
 				var currentProjectCard *github.ProjectCard
-				if v.Repository.GetHasProjects() {
+				if repo.GetHasProjects() {
 					currentProjectCard, _ = g.GetCurrentProjectCard(v)
 				}
 

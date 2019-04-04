@@ -10,7 +10,7 @@ type ExtendedGithubIssue struct {
 	ProjectCard *github.ProjectCard
 }
 
-type ExtendedJiraIssue struct {
-	jira.Issue
-	AvailableStatusesByName map[string] *jira.Status
+type IssueTypeWithStatuses struct {
+	jira.IssueType
+	Statuses []jira.Status
 }
