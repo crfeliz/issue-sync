@@ -3,6 +3,7 @@ package issuesyncgithub
 import (
 	"context"
 	"fmt"
+	"github.com/coreos/issue-sync/lib/models"
 
 	"time"
 
@@ -16,7 +17,7 @@ import (
 // use. It allows us to swap in other implementations, such as a dry run
 // clients, or mock clients for testing.
 type Client interface {
-	ListIssues() ([]github.Issue, error)
+	ListIssues() ([]models.ExtendedGithubIssue, error)
 	//GetCurrentProjectCard(issue *github.Issue) (*github.ProjectCard, error)
 	ListComments(issue github.Issue) ([]*github.IssueComment, error)
 	GetUser(login string) (github.User, error)
@@ -31,17 +32,59 @@ type realGHClient struct {
 	client github.Client
 }
 
-// ListIssues returns the list of GitHub issues since the last run of the tool.
-func (g realGHClient) ListIssues() ([]github.Issue, error) {
+func (g realGHClient) GetCurrentProjectCard(issue *github.Issue) (*github.ProjectCard, error) {
 	log := g.config.GetLogger()
-
 	ctx := context.Background()
+	user, repo := g.config.GetRepo()
+	pages := 1
 
+	var currentProjectCard *github.ProjectCard
+
+	// search for the current project card
+	for page := 1; page <= pages; page++ {
+		is, res, err := g.request(func() (interface{}, *github.Response, error) {
+			return g.client.Issues.ListIssueEvents(ctx, user, repo, issue.GetNumber(), &github.ListOptions{
+				Page:    page,
+				PerPage: 100,
+			})
+		})
+		if err != nil {
+			return nil, err
+		}
+		issueEventPointers, ok := is.([]*github.IssueEvent)
+		if !ok {
+			log.Errorf("Get GitHub issue events did not return issue events! Got: %v", is)
+			return nil, fmt.Errorf("get GitHub issues events failed: expected []*github.IssueEvent; got %T", is)
+		}
+
+
+		for _, v := range issueEventPointers {
+			if v.ProjectCard != nil {
+				if v.GetEvent() == "added_to_project" || v.GetEvent() == "moved_columns_in_project" {
+					currentProjectCard = v.ProjectCard
+				} else if *v.Event == "removed_from_project" {
+					currentProjectCard = nil
+				}
+			}
+		}
+		pages = res.LastPage
+	}
+
+	log.Debug("Found current Project Card for issue #%d", issue.GetNumber())
+
+	return currentProjectCard, nil
+}
+
+// ListIssues returns the list of GitHub issues since the last run of the tool.
+func (g realGHClient) ListIssues() ([]models.ExtendedGithubIssue, error) {
+	log := g.config.GetLogger()
+	ctx := context.Background()
 	user, repoName := g.config.GetRepo()
+	repo, _, _ := g.client.Repositories.Get(ctx, user, repoName)
 
 	// Set it so that it will run the loop once, and it'll be updated in the loop.
 	pages := 1
-	var issues []github.Issue
+	var issues []models.ExtendedGithubIssue
 
 	for page := 1; page <= pages; page++ {
 		is, res, err := g.request(func() (interface{}, *github.Response, error) {
@@ -65,11 +108,17 @@ func (g realGHClient) ListIssues() ([]github.Issue, error) {
 			return nil, fmt.Errorf("get GitHub issues failed: expected []*github.Issue; got %T", is)
 		}
 
-		var issuePage []github.Issue
+		var issuePage []models.ExtendedGithubIssue
 		for _, v := range issuePointers {
 			// If PullRequestLinks is not nil, it's a Pull Request
 			if v.PullRequestLinks == nil {
-				issuePage = append(issuePage,* v)
+
+				var currentProjectCard *github.ProjectCard
+				if repo.GetHasProjects() {
+					currentProjectCard, _ = g.GetCurrentProjectCard(v)
+				}
+
+				issuePage = append(issuePage, models.ExtendedGithubIssue{*v, currentProjectCard})
 			}
 		}
 
@@ -86,7 +135,6 @@ func (g realGHClient) ListIssues() ([]github.Issue, error) {
 // ascending order of creation.
 func (g realGHClient) ListComments(issue github.Issue) ([]*github.IssueComment, error) {
 	log := g.config.GetLogger()
-
 	ctx := context.Background()
 	user, repo := g.config.GetRepo()
 	c, _, err := g.request(func() (interface{}, *github.Response, error) {

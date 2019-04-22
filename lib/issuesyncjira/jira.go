@@ -53,6 +53,8 @@ type Client interface {
 	createIssue(issue *jira.Issue) (*jira.Issue, *jira.Response, error)
 	updateIssue(issue *jira.Issue) (*jira.Issue, *jira.Response, error)
 	addComment(id string, jComment *jira.Comment, jIssue *jira.Issue, ghComment *github.IssueComment, ghUser *github.User) (*jira.Comment, *jira.Response, error)
+	getTransitions(issue jira.Issue) ([]jira.Transition, *jira.Response, error)
+	applyTransition(issue jira.Issue, transition jira.Transition) (*jira.Response, error)
 }
 
 // realJIRAClient is a standard JIRA clients, which actually makes
@@ -74,6 +76,14 @@ type dryrunJIRAClient struct {
 
 func (j realJIRAClient) getConfig() cfg.Config {
 	return j.config
+}
+
+func (j realJIRAClient) getTransitions(issue jira.Issue) ([]jira.Transition, *jira.Response, error) {
+	return j.client.Issue.GetTransitions(issue.ID)
+}
+
+func (j realJIRAClient) applyTransition(issue jira.Issue, transition jira.Transition) (*jira.Response, error) {
+	return j.client.Issue.DoTransition(issue.ID, transition.ID)
 }
 
 func (j realJIRAClient) searchIssues(jql string) (interface{}, *jira.Response, error) {
@@ -102,6 +112,23 @@ func (j realJIRAClient) do(method string, url string, body interface{}, out inte
 }
 
 // DRY RUN CLIENT
+
+func (j dryrunJIRAClient) getTransitions(issue jira.Issue) ([]jira.Transition, *jira.Response, error) {
+	return j.client.Issue.GetTransitions(issue.ID)
+}
+
+func (j dryrunJIRAClient) applyTransition(issue jira.Issue, transition jira.Transition) (*jira.Response, error) {
+	log := j.config.GetLogger()
+	log.Info("")
+	log.Info("Applying Transition:")
+	log.Infof("  Jira Issue ID: %s", issue.ID)
+	log.Infof("  Transition Id: %s", transition.ID)
+	log.Infof("  Old Status: %s", issue.Fields.Status.Name)
+	log.Infof("  New Satus: %s", transition.To.Name)
+	log.Info("")
+	return nil, nil
+}
+
 func (j dryrunJIRAClient) getConfig() cfg.Config {
 	return j.config
 }
@@ -310,6 +337,39 @@ func NewClient(config *cfg.Config) (Client, error) {
 	}
 
 	return j, nil
+}
+
+func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) error {
+	log := j.getConfig().GetLogger()
+
+	currentStatusName := strings.ToLower(issue.Fields.Status.Name)
+	targetStatusName := strings.ToLower(statusName)
+	if currentStatusName == targetStatusName {
+		log.Debug("Issue Status is already in sync")
+		return nil
+	}
+
+	transitions, res, err := j.getTransitions(issue)
+
+	if err != nil {
+		log.Errorf("Error retrieving JIRA transitions: %v", err)
+		return getErrorBody(j.getConfig(), res)
+	}
+
+	for _, v := range transitions {
+		if strings.ToLower(v.To.Name) == targetStatusName {
+			log.Info(fmt.Sprintf("Applying transition %s -> %s on issue %s", issue.Fields.Status.Name, v.To.Name, issue.ID))
+			_, err = j.applyTransition(issue, v)
+			if err != nil {
+				log.Errorf("Error retrieving JIRA transitions: %v", err)
+				return getErrorBody(j.getConfig(), res)
+			} else {
+				return nil
+			}
+		}
+	}
+	// TODO: This is where we can decide what to do about invalid transitions
+	return errors.New(fmt.Sprintf("No transition from '%s' to '%s' found for issue %s", issue.Fields.Status.Name, statusName, issue.ID))
 }
 
 // ListIssues returns a list of JIRA issues on the configured project which
