@@ -225,6 +225,7 @@ type configFile struct {
 	LogLevel    string        `json:"log-level" mapstructure:"log-level"`
 	GithubToken string        `json:"github-token" mapstructure:"github-token"`
 	JIRAUser    string        `json:"jira-user" mapstructure:"jira-user"`
+	JIRAPass  	string        `json:"jira-pass" mapstructure:"jira-pass"`
 	JIRAToken   string        `json:"jira-token" mapstructure:"jira-token"`
 	JIRASecret  string        `json:"jira-secret" mapstructure:"jira-secret"`
 	JIRAKey     string        `json:"jira-private-key-path" mapstructure:"jira-private-key-path"`
