@@ -94,7 +94,7 @@ func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssu
 
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(jIssue, config.GetFieldKey(cfg.GitHubLabels), ghLabelsString)
 	anyDifferent = anyDifferent || (ghIssue.ProjectCard != nil && jIssue.Fields.Status.Name != ghIssue.ProjectCard.GetColumnName())
-	log.Debugf("Issues have any differences: %b", anyDifferent)
+	log.Debugf("Issues have any differences: %t", anyDifferent)
 
 	return anyDifferent
 }

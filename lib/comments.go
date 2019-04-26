@@ -100,7 +100,7 @@ func UpdateComment(config cfg.Config, ghComment github.IssueComment, jComment ji
 		return err
 	}
 
-	log.Debug("Updated JIRA comment %s.", comment.ID)
+	log.Debugf("Updated JIRA comment %s.", comment.ID)
 
 	return nil
 }
