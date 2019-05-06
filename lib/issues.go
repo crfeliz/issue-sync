@@ -1,19 +1,13 @@
 package lib
 
 import (
-	"github.com/coreos/issue-sync/lib/issuesyncgithub"
-	"github.com/coreos/issue-sync/lib/models"
-	"strings"
-	"time"
-
 	"github.com/andygrunwald/go-jira"
 	"github.com/coreos/issue-sync/cfg"
+	"github.com/coreos/issue-sync/lib/issuesyncgithub"
 	"github.com/coreos/issue-sync/lib/issuesyncjira"
-	"github.com/google/go-github/github"
+	"github.com/coreos/issue-sync/lib/models"
+	"strings"
 )
-
-// dateFormat is the format used for the Last IS Update field
-const dateFormat = "2006-01-02T15:04:05.0-0700"
 
 // CompareIssues gets the list of GitHub issues updated since the `since` date,
 // gets the list of JIRA issues which have GitHub ID custom fields in that list,
@@ -49,17 +43,18 @@ func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClien
 	for _, ghIssue := range ghIssues {
 		found := false
 		for _, jIssue := range jiraIssues {
-			id, _ := jIssue.Fields.Unknowns.Int(config.GetFieldKey(cfg.GitHubID))
-			if int64(*ghIssue.ID) == id {
+
+			id, _ := config.GetFieldMapper().GetFieldValue(jIssue, cfg.GitHubID)
+			if int64(*ghIssue.ID) == id.(int64) {
 				found = true
-				if err := UpdateIssue(config, ghIssue, jIssue, ghClient, jiraClient); err != nil {
+				if err := UpdateIssue(config, ghIssue, jIssue, ghClient, jiraClient,); err != nil {
 					log.Errorf("Error updating issue %s. Error: %v", jIssue.Key, err)
 				}
 				break
 			}
 		}
 		if !found {
-			if err := CreateIssue(config, ghIssue.Issue, ghClient, jiraClient); err != nil {
+			if err := CreateIssue(config, ghIssue, ghClient, jiraClient); err != nil {
 				log.Errorf("Error creating issue for #%d. Error: %v", *ghIssue.Number, err)
 			}
 		}
@@ -68,9 +63,9 @@ func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClien
 	return nil
 }
 
-func jiraCustomFieldsNeedUpdate(jIssue jira.Issue, fieldKey string, githubFieldValue string) bool {
-	jiraField, err := jIssue.Fields.Unknowns.String(fieldKey)
-	return err != nil || jiraField != githubFieldValue
+func jiraCustomFieldsNeedUpdate(config cfg.Config, jIssue jira.Issue, fieldKey cfg.FieldKey, githubFieldValue string) bool {
+	jiraField, err := config.GetFieldMapper().GetFieldValue(jIssue, fieldKey)
+	return err != nil || jiraField.(string) != githubFieldValue
 }
 
 // DidIssueChange tests each of the relevant fields on the provided JIRA and GitHub issue
@@ -84,15 +79,15 @@ func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssu
 
 	anyDifferent = anyDifferent || (ghIssue.GetTitle() != jIssue.Fields.Summary)
 	anyDifferent = anyDifferent || (ghIssue.GetBody() != jIssue.Fields.Description)
-	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(jIssue, config.GetFieldKey(cfg.GitHubStatus), ghIssue.GetState())
-	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(jIssue, config.GetFieldKey(cfg.GitHubReporter), ghIssue.User.GetLogin())
+	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubStatus, ghIssue.GetState())
+	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubReporter, ghIssue.User.GetLogin())
 	ghLabels := make([]string, len(ghIssue.Labels))
 	for i, l := range ghIssue.Labels {
 		ghLabels[i] = *l.Name
 	}
 	ghLabelsString := strings.Join(ghLabels, ",")
 
-	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(jIssue, config.GetFieldKey(cfg.GitHubLabels), ghLabelsString)
+	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubLabels, ghLabelsString)
 	anyDifferent = anyDifferent || (ghIssue.ProjectCard != nil && jIssue.Fields.Status.Name != ghIssue.ProjectCard.GetColumnName())
 	log.Debugf("Issues have any differences: %t", anyDifferent)
 
@@ -110,22 +105,7 @@ func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue j
 	var issue jira.Issue
 
 	if DidIssueChange(config, ghIssue, jIssue) {
-		fields := jira.IssueFields{}
-		fields.Unknowns = map[string]interface{}{}
-		fields.Summary = ghIssue.GetTitle()
-		fields.Description = ghIssue.GetBody()
-		fields.Unknowns[config.GetFieldKey(cfg.GitHubStatus)] = ghIssue.GetState()
-		fields.Unknowns[config.GetFieldKey(cfg.GitHubReporter)] = ghIssue.User.GetLogin()
-
-		labels := make([]string, len(ghIssue.Labels))
-		for i, l := range ghIssue.Labels {
-			labels[i] = l.GetName()
-		}
-		fields.Unknowns[config.GetFieldKey(cfg.GitHubLabels)] = strings.Join(labels, ",")
-
-		fields.Unknowns[config.GetFieldKey(cfg.LastISUpdate)] = time.Now().Format(dateFormat)
-
-		fields.Type = jIssue.Fields.Type
+		fields := config.GetFieldMapper().MapFields(&ghIssue.Issue)
 
 		issue = jira.Issue{
 			Fields: &fields,
@@ -167,33 +147,12 @@ func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue j
 
 // CreateIssue generates a JIRA issue from the various fields on the given GitHub issue, then
 // sends it to the JIRA API.
-func CreateIssue(config cfg.Config, issue github.Issue, ghClient issuesyncgithub.Client, jClient issuesyncjira.Client) error {
+func CreateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, ghClient issuesyncgithub.Client, jClient issuesyncjira.Client) error {
 	log := config.GetLogger()
 
-	log.Debugf("Creating JIRA issue based on GitHub issue #%d", *issue.Number)
+	log.Debugf("Creating JIRA issue based on GitHub issue #%d", *ghIssue.Issue.Number)
 
-	fields := jira.IssueFields{
-		Type: jira.IssueType{
-			Name: "Task", // TODO: Determine issue type
-		},
-		Project:     config.GetProject(),
-		Summary:     issue.GetTitle(),
-		Description: issue.GetBody(),
-		Unknowns:    map[string]interface{}{},
-	}
-
-	fields.Unknowns[config.GetFieldKey(cfg.GitHubID)] = issue.GetID()
-	fields.Unknowns[config.GetFieldKey(cfg.GitHubNumber)] = issue.GetNumber()
-	fields.Unknowns[config.GetFieldKey(cfg.GitHubStatus)] = issue.GetState()
-	fields.Unknowns[config.GetFieldKey(cfg.GitHubReporter)] = issue.User.GetLogin()
-
-	strs := make([]string, len(issue.Labels))
-	for i, v := range issue.Labels {
-		strs[i] = *v.Name
-	}
-	fields.Unknowns[config.GetFieldKey(cfg.GitHubLabels)] = strings.Join(strs, ",")
-
-	fields.Unknowns[config.GetFieldKey(cfg.LastISUpdate)] = time.Now().Format(dateFormat)
+	fields := config.GetFieldMapper().MapFields(&ghIssue.Issue)
 
 	jIssue := jira.Issue{
 		Fields: &fields,
@@ -204,6 +163,13 @@ func CreateIssue(config cfg.Config, issue github.Issue, ghClient issuesyncgithub
 		return err
 	}
 
+	if ghIssue.ProjectCard != nil {
+		err = issuesyncjira.TryApplyTransitionWithName(jClient, jIssue, ghIssue.ProjectCard.GetColumnName())
+		if err != nil {
+			return err
+		}
+	}
+
 	jIssue, err = issuesyncjira.GetIssue(jClient, jIssue.Key)
 	if err != nil {
 		return err
@@ -211,7 +177,7 @@ func CreateIssue(config cfg.Config, issue github.Issue, ghClient issuesyncgithub
 
 	log.Debugf("Created JIRA issue %s!", jIssue.Key)
 
-	if err := CompareComments(config, issue, jIssue, ghClient, jClient); err != nil {
+	if err := CompareComments(config, ghIssue.Issue, jIssue, ghClient, jClient); err != nil {
 		return err
 	}
 

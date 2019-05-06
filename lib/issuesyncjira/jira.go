@@ -322,7 +322,12 @@ func NewClient(config *cfg.Config) (Client, error) {
 
 	log.Debug("JIRA clients initialized")
 
-	config.LoadJIRAConfig(*client)
+	err = config.LoadJIRAConfig(*client)
+
+	if err != nil {
+		log.Errorf("Error loading config", err)
+		return dryrunJIRAClient{}, err
+	}
 
 	if config.IsDryRun() {
 		j = dryrunJIRAClient{
