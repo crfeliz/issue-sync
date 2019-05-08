@@ -14,6 +14,7 @@ import (
 	"github.com/andygrunwald/go-jira"
 	"github.com/cenkalti/backoff"
 	"github.com/coreos/issue-sync/cfg"
+	"github.com/coreos/issue-sync/lib/utils"
 	"github.com/google/go-github/github"
 )
 
@@ -150,11 +151,11 @@ func (j dryrunJIRAClient) createIssue(issue *jira.Issue) (*jira.Issue, *jira.Res
 	log.Info("Create new JIRA issue:")
 	log.Infof("  Summary: %s", fields.Summary)
 	log.Infof("  Description: %s", truncate(fields.Description, 50))
-	log.Infof("  GitHub ID: %d", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubID)])
-	log.Infof("  GitHub Number: %d", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubNumber)])
-	log.Infof("  GitHub Labels: %s", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubLabels)])
-	log.Infof("  GitHub Status: %s", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubStatus)])
-	log.Infof("  GitHub Reporter: %s", fields.Unknowns[j.config.GetFieldKey(cfg.GitHubReporter)])
+	log.Infof("  GitHub ID: %d", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubID))(""))
+	log.Infof("  GitHub Number: %d", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubNumber)))
+	log.Infof("  GitHub Labels: %s", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubLabels)))
+	log.Infof("  GitHub Status: %s", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubStatus)))
+	log.Infof("  GitHub Reporter: %s", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubReporter)))
 	log.Info("")
 
 	return issue, nil, nil
@@ -169,12 +170,10 @@ func (j dryrunJIRAClient) updateIssue(issue *jira.Issue) (*jira.Issue, *jira.Res
 	log.Infof("Update JIRA issue %s:", issue.Key)
 	log.Infof("  Summary: %s", fields.Summary)
 	log.Infof("  Description: %s", truncate(fields.Description, 50))
-	key := j.config.GetFieldKey(cfg.GitHubLabels)
-	if labels, err := fields.Unknowns.String(key); err == nil {
+	if labels, err := j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubLabels); err == nil {
 		log.Infof("  Labels: %s", labels)
 	}
-	key = j.config.GetFieldKey(cfg.GitHubStatus)
-	if state, err := fields.Unknowns.String(key); err == nil {
+	if state, err := j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubStatus); err == nil {
 		log.Infof("  State: %s", state)
 	}
 	log.Info("")
@@ -347,7 +346,14 @@ func NewClient(config *cfg.Config) (Client, error) {
 func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) error {
 	log := j.getConfig().GetLogger()
 
-	currentStatusName := strings.ToLower(issue.Fields.Status.Name)
+
+	var currentStatusName string
+	if issue.Fields.Status == nil {
+		currentStatusName = ""
+	} else {
+		currentStatusName = strings.ToLower(issue.Fields.Status.Name)
+	}
+
 	targetStatusName := strings.ToLower(statusName)
 	if currentStatusName == targetStatusName {
 		log.Debug("Issue Status is already in sync")
@@ -366,7 +372,7 @@ func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) e
 			log.Info(fmt.Sprintf("Applying transition %s -> %s on issue %s", issue.Fields.Status.Name, v.To.Name, issue.ID))
 			_, err = j.applyTransition(issue, v)
 			if err != nil {
-				log.Errorf("Error retrieving JIRA transitions: %v", err)
+				log.Errorf("Error applying JIRA transitions: %v", err)
 				return getErrorBody(j.getConfig(), res)
 			} else {
 				return nil
@@ -391,7 +397,7 @@ func ListIssues(j Client, ghIssueIds []int64) ([]jira.Issue, error) {
 	var jql string
 	// If the list of IDs is too long, we get a 414 Request-URI Too Large, so in that case,
 	// we'll need to do the filtering ourselves.
-	if len(ghIssueIds) < maxJQLIssueLength {
+	if !j.getConfig().IsUsingGitHubDataField() && len(ghIssueIds) < maxJQLIssueLength {
 		jql = fmt.Sprintf("project='%s' AND cf[%s] in (%s)",
 			j.getConfig().GetProjectKey(), j.getConfig().GetFieldID(cfg.GitHubID), strings.Join(ghIssueIdStrs, ","))
 	} else {
@@ -430,15 +436,15 @@ func ListIssues(j Client, ghIssueIds []int64) ([]jira.Issue, error) {
 	}
 
 	var issues []jira.Issue
-	if len(ghIssueIds) < maxJQLIssueLength {
+	if !j.getConfig().IsUsingGitHubDataField() && len(ghIssueIds) < maxJQLIssueLength {
 		// The issues were already filtered by our JQL, so use as is
 		issues = jiraIssues
 	} else {
 		// Filter only issues which have a defined GitHub ID in the list of IDs
 		for _, v := range jiraIssues {
-			if id, err := v.Fields.Unknowns.Int(j.getConfig().GetFieldKey(cfg.GitHubID)); err == nil {
+			if id, err := j.getConfig().GetFieldMapper().GetFieldValue(&v, cfg.GitHubID); err == nil {
 				for _, idOpt := range ghIssueIds {
-					if id == int64(idOpt) {
+					if id.(int64) == int64(idOpt) {
 						issues = append(issues, v)
 						break
 					}

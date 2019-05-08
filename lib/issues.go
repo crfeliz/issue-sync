@@ -44,7 +44,7 @@ func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClien
 		found := false
 		for _, jIssue := range jiraIssues {
 
-			id, _ := config.GetFieldMapper().GetFieldValue(jIssue, cfg.GitHubID)
+			id, _ := config.GetFieldMapper().GetFieldValue(&jIssue, cfg.GitHubID)
 			if int64(*ghIssue.ID) == id.(int64) {
 				found = true
 				if err := UpdateIssue(config, ghIssue, jIssue, ghClient, jiraClient,); err != nil {
@@ -64,7 +64,7 @@ func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClien
 }
 
 func jiraCustomFieldsNeedUpdate(config cfg.Config, jIssue jira.Issue, fieldKey cfg.FieldKey, githubFieldValue string) bool {
-	jiraField, err := config.GetFieldMapper().GetFieldValue(jIssue, fieldKey)
+	jiraField, err := config.GetFieldMapper().GetFieldValue(&jIssue, fieldKey)
 	return err != nil || jiraField.(string) != githubFieldValue
 }
 

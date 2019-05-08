@@ -13,7 +13,7 @@ import (
 type FieldMapper interface {
 	MapFields(issue *github.Issue) jira.IssueFields
 
-	GetFieldValue(jIssue jira.Issue, fieldKey FieldKey) (interface{}, error)
+	GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error)
 
 	// getFieldIDs requests the metadata of every issue field in the JIRA
 	// project, and saves the IDs of the custom fields used by issue-sync.
@@ -28,9 +28,19 @@ type JsonFieldMapper struct {
 	Config *Config
 }
 
-func (m DefaultFieldMapper) GetFieldValue(jIssue jira.Issue, fieldKey FieldKey) (interface{}, error) {
-	jiraFieldValue, err := jIssue.Fields.Unknowns.String(m.Config.GetFieldKey(fieldKey))
-	return jiraFieldValue, err
+func (m DefaultFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error) {
+	var result interface{} = nil
+	var err error = nil
+
+	switch fieldKey {
+	case GitHubID:
+		fallthrough
+	case GitHubNumber:
+		result, err = jIssue.Fields.Unknowns.Int(m.Config.GetCompleteFieldKey(fieldKey))
+	default:
+		result, err = jIssue.Fields.Unknowns.String(m.Config.GetCompleteFieldKey(fieldKey))
+	}
+	return result, err
 }
 
 func (m DefaultFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
@@ -44,18 +54,18 @@ func (m DefaultFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
 		Unknowns:    map[string]interface{}{},
 	}
 
-	fields.Unknowns[m.Config.GetFieldKey(GitHubID)] = issue.GetID()
-	fields.Unknowns[m.Config.GetFieldKey(GitHubNumber)] = issue.GetNumber()
-	fields.Unknowns[m.Config.GetFieldKey(GitHubStatus)] = issue.GetState()
-	fields.Unknowns[m.Config.GetFieldKey(GitHubReporter)] = issue.User.GetLogin()
+	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubID)] = issue.GetID()
+	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubNumber)] = issue.GetNumber()
+	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubStatus)] = issue.GetState()
+	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubReporter)] = issue.User.GetLogin()
 
 	strs := make([]string, len(issue.Labels))
 	for i, v := range issue.Labels {
 		strs[i] = *v.Name
 	}
-	fields.Unknowns[m.Config.GetFieldKey(GitHubLabels)] = strings.Join(strs, ",")
+	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubLabels)] = strings.Join(strs, ",")
 
-	fields.Unknowns[m.Config.GetFieldKey(LastISUpdate)] = time.Now().Format(DateFormat)
+	fields.Unknowns[m.Config.GetCompleteFieldKey(LastISUpdate)] = time.Now().Format(DateFormat)
 
 	return fields
 }
@@ -127,38 +137,37 @@ func (m DefaultFieldMapper) GetFieldIDs(client jira.Client) (map[FieldKey]string
 	return fieldIDs, nil
 }
 
-// TODO: clean this up and move field strings into enum
-func (m JsonFieldMapper) GetFieldValue(jIssue jira.Issue, fieldKey FieldKey) (interface{}, error) {
-	j, err := jIssue.Fields.Unknowns.String(m.Config.GetFieldKey(GitHubData))
+func (m JsonFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error) {
 
-	if err != nil {
+	var result interface{} = nil
+	var err error = nil
+
+	jsonGithubData, err := jIssue.Fields.Unknowns.String(m.Config.GetCompleteFieldKey(GitHubData))
+	if  err != nil {
 		return nil, err
 	}
 
 	var parsedJson map[string]interface{}
-
-	json.Unmarshal([]byte(j), &parsedJson)
+	err = json.Unmarshal([]byte(jsonGithubData), &parsedJson)
+	if  err != nil {
+		return nil, err
+	}
 
 	switch fieldKey {
 	case GitHubID:
-		return parsedJson["githubId"], nil
+		result = parsedJson["githubId"]
 	case GitHubNumber:
-		return parsedJson["githubNumber"], nil
+		result = parsedJson["githubNumber"]
 	case GitHubLabels:
-		return parsedJson["githubLabels"], nil
+		result = parsedJson["githubLabels"]
 	case GitHubStatus:
-		return parsedJson["githubStatus"], nil
+		result = parsedJson["githubStatus"]
 	case GitHubReporter:
-		return parsedJson["githubReporter"], nil
+		result = parsedJson["githubReporter"]
 	case LastISUpdate:
-		return parsedJson["lastIssueSyncUpdate"], nil
+		result = parsedJson["lastIssueSyncUpdate"]
 	}
-	return nil, err
-}
-
-func (m JsonFieldMapper) GetInt64FieldValue(issue *jira.Issue) int64 {
-	id, _ := issue.Fields.Unknowns.Int(m.Config.GetFieldKey(GitHubID))
-	return id
+	return result, err
 }
 
 func (m JsonFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
@@ -172,9 +181,9 @@ func (m JsonFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
 		Unknowns:    map[string]interface{}{},
 	}
 
-	strs := make([]string, len(issue.Labels))
+	githubLabelString := make([]string, len(issue.Labels))
 	for i, v := range issue.Labels {
-		strs[i] = *v.Name
+		githubLabelString[i] = *v.Name
 	}
 
 	data := map[string]interface{}{
@@ -182,11 +191,11 @@ func (m JsonFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
 		"githubNumber": issue.GetNumber(),
 		"githubStatus":issue.GetState(),
 		"githubReporter": issue.User.GetLogin(),
-		"githubLabels": strs,
+		"githubLabels": githubLabelString,
 		"lastIssueSyncUpdate": time.Now().Format(DateFormat),
 	}
 
-	fields.Unknowns[m.Config.GetFieldKey(GitHubData)], _ = json.Marshal(data)
+	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubData)], _ = json.Marshal(data)
 
 	return fields
 }
