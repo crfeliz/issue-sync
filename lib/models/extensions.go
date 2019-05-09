@@ -7,4 +7,5 @@ import (
 type ExtendedGithubIssue struct {
 	github.Issue
 	ProjectCard *github.ProjectCard
+	CommitIds []string
 }

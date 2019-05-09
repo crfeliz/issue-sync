@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"github.com/andygrunwald/go-jira"
-	"github.com/google/go-github/github"
+	"github.com/coreos/issue-sync/lib/models"
 	"strings"
 	"time"
 )
 
 type FieldMapper interface {
-	MapFields(issue *github.Issue) jira.IssueFields
+	MapFields(issue *models.ExtendedGithubIssue) jira.IssueFields
 
 	GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error)
 
@@ -43,7 +43,7 @@ func (m DefaultFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey)
 	}
 }
 
-func (m DefaultFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
+func (m DefaultFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.IssueFields {
 	fields := jira.IssueFields{
 		Type: jira.IssueType{
 			Name: "Task", // TODO: Determine issue type
@@ -51,6 +51,7 @@ func (m DefaultFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
 		Project:     m.Config.GetProject(),
 		Summary:     issue.GetTitle(),
 		Description: issue.GetBody(),
+		Labels: 	 issue.CommitIds,
 		Unknowns:    map[string]interface{}{},
 	}
 
@@ -169,7 +170,7 @@ func (m JsonFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (i
 	return result, nil
 }
 
-func (m JsonFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
+func (m JsonFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.IssueFields {
 	fields := jira.IssueFields{
 		Type: jira.IssueType{
 			Name: "Task", // TODO: Determine issue type
@@ -177,6 +178,7 @@ func (m JsonFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
 		Project:     m.Config.GetProject(),
 		Summary:     issue.GetTitle(),
 		Description: issue.GetBody(),
+		Labels: 	 issue.CommitIds,
 		Unknowns:    map[string]interface{}{},
 	}
 
@@ -194,7 +196,8 @@ func (m JsonFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
 		"lastIssueSyncUpdate": time.Now().Format(DateFormat),
 	}
 
-	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubData)], _ = json.Marshal(data)
+	j, _ := json.Marshal(data)
+	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubData)] = string(j)
 
 	return fields
 }

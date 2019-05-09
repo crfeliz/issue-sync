@@ -117,7 +117,7 @@ func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue j
 	var issue jira.Issue
 
 	if DidIssueChange(config, ghIssue, jIssue) {
-		fields := config.GetFieldMapper().MapFields(&ghIssue.Issue)
+		fields := config.GetFieldMapper().MapFields(&ghIssue)
 
 		issue = jira.Issue{
 			Fields: &fields,
@@ -164,7 +164,7 @@ func CreateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, ghClient
 
 	log.Debugf("Creating JIRA issue based on GitHub issue #%d", *ghIssue.Issue.Number)
 
-	fields := config.GetFieldMapper().MapFields(&ghIssue.Issue)
+	fields := config.GetFieldMapper().MapFields(&ghIssue)
 
 	jIssue := jira.Issue{
 		Fields: &fields,

@@ -18,7 +18,7 @@ import (
 // clients, or mock clients for testing.
 type Client interface {
 	ListIssues() ([]models.ExtendedGithubIssue, error)
-	//GetCurrentProjectCard(issue *github.Issue) (*github.ProjectCard, error)
+	//GetCurrentProjectCardAndCommitIds(issue *github.Issue) (*github.ProjectCard, error)
 	ListComments(issue github.Issue) ([]*github.IssueComment, error)
 	GetUser(login string) (github.User, error)
 	GetRateLimits() (github.RateLimits, error)
@@ -32,7 +32,7 @@ type realGHClient struct {
 	client github.Client
 }
 
-func (g realGHClient) GetCurrentProjectCard(issue *github.Issue) (*github.ProjectCard, error) {
+func (g realGHClient) GetCurrentProjectCardAndCommitIds(issue *github.Issue) (*github.ProjectCard, []string, error) {
 	log := g.config.GetLogger()
 
 	ctx := context.Background()
@@ -43,6 +43,8 @@ func (g realGHClient) GetCurrentProjectCard(issue *github.Issue) (*github.Projec
 
 	var currentProjectCard *github.ProjectCard
 
+	var commitIds []string
+
 	// search for the current project card
 	for page := 1; page <= pages; page++ {
 		is, res, err := g.request(func() (interface{}, *github.Response, error) {
@@ -52,14 +54,13 @@ func (g realGHClient) GetCurrentProjectCard(issue *github.Issue) (*github.Projec
 			})
 		})
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		issueEventPointers, ok := is.([]*github.IssueEvent)
 		if !ok {
 			log.Errorf("Get GitHub issue events did not return issue events! Got: %v", is)
-			return nil, fmt.Errorf("get GitHub issues events failed: expected []*github.IssueEvent; got %T", is)
+			return nil, nil, fmt.Errorf("get GitHub issues events failed: expected []*github.IssueEvent; got %T", is)
 		}
-
 
 		for _, v := range issueEventPointers {
 			if v.ProjectCard != nil {
@@ -69,13 +70,17 @@ func (g realGHClient) GetCurrentProjectCard(issue *github.Issue) (*github.Projec
 					currentProjectCard = nil
 				}
 			}
+
+			if v.CommitID != nil {
+				commitIds = append(commitIds, *v.CommitID)
+			}
 		}
 		pages = res.LastPage
 	}
 
 	log.Debug("Found current Project Card for issue #%d", issue.GetNumber())
 
-	return currentProjectCard, nil
+	return currentProjectCard, commitIds, nil
 }
 
 // ListIssues returns the list of GitHub issues since the last run of the tool.
@@ -120,11 +125,12 @@ func (g realGHClient) ListIssues() ([]models.ExtendedGithubIssue, error) {
 			if v.PullRequestLinks == nil {
 
 				var currentProjectCard *github.ProjectCard
+				var commitIds []string
 				if repo.GetHasProjects() {
-					currentProjectCard, _ = g.GetCurrentProjectCard(v)
+					currentProjectCard, commitIds, _ = g.GetCurrentProjectCardAndCommitIds(v)
 				}
 
-				issuePage = append(issuePage, models.ExtendedGithubIssue{*v, currentProjectCard})
+				issuePage = append(issuePage, models.ExtendedGithubIssue{Issue: *v, ProjectCard: currentProjectCard, CommitIds: commitIds})
 			}
 		}
 
