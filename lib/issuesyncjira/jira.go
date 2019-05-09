@@ -348,7 +348,7 @@ func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) e
 
 
 	var currentStatusName string
-	if issue.Fields.Status == nil {
+	if issue.Fields == nil || issue.Fields.Status == nil {
 		currentStatusName = ""
 	} else {
 		currentStatusName = strings.ToLower(issue.Fields.Status.Name)
@@ -369,7 +369,7 @@ func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) e
 
 	for _, v := range transitions {
 		if strings.ToLower(v.To.Name) == targetStatusName {
-			log.Info(fmt.Sprintf("Applying transition %s -> %s on issue %s", issue.Fields.Status.Name, v.To.Name, issue.ID))
+			log.Info(fmt.Sprintf("Applying transition %s -> %s on issue %s", currentStatusName, v.To.Name, issue.ID))
 			_, err = j.applyTransition(issue, v)
 			if err != nil {
 				log.Errorf("Error applying JIRA transitions: %v", err)
@@ -380,7 +380,7 @@ func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) e
 		}
 	}
 	// TODO: This is where we can decide what to do about invalid transitions
-	return errors.New(fmt.Sprintf("No transition from '%s' to '%s' found for issue %s", issue.Fields.Status.Name, statusName, issue.ID))
+	return errors.New(fmt.Sprintf("No transition from '%s' to '%s' found for issue %s", currentStatusName, statusName, issue.ID))
 }
 
 // ListIssues returns a list of JIRA issues on the configured project which

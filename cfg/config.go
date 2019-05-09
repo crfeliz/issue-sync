@@ -159,6 +159,15 @@ func (c Config) IsDryRun() bool {
 	return c.cmdConfig.GetBool("dry-run")
 }
 
+// FullSyncAlways returns whether the application should rewrite the config file to set "since" to now or if it should
+// always do a full sync from the given sync. Full sync is required for GitHubProjectBoard -> Jira State syncing. This
+// is becuase moving a GitHub issue on the project board does not change the last updated time of the issue itself -
+// only that of the project card.
+func (c Config) FullSyncAlways() bool {
+	return c.cmdConfig.GetBool("full-sync-always")
+}
+
+
 // IsDaemon returns whether the application is running as a daemon
 func (c Config) IsDaemon() bool {
 	return c.cmdConfig.GetDuration("period") != 0
@@ -225,12 +234,12 @@ func (c Config) SetJIRAToken(token *oauth1.Token) {
 type configFile struct {
 	LogLevel    string        `json:"log-level" mapstructure:"log-level"`
 	GithubToken string        `json:"github-token" mapstructure:"github-token"`
-	JIRAUser    string        `json:"jira-user" mapstructure:"jira-user"`
-	JIRAPass  	string        `json:"jira-pass" mapstructure:"jira-pass"`
-	JIRAToken   string        `json:"jira-token" mapstructure:"jira-token"`
-	JIRASecret  string        `json:"jira-secret" mapstructure:"jira-secret"`
-	JIRAKey     string        `json:"jira-private-key-path" mapstructure:"jira-private-key-path"`
-	JIRACKey    string        `json:"jira-consumer-key" mapstructure:"jira-consumer-key"`
+	JIRAUser    string        `json:"jira-user,omitempty" mapstructure:"jira-user"`
+	JIRAPass  	string        `json:"jira-pass,omitempty" mapstructure:"jira-pass"`
+	JIRAToken   string        `json:"jira-token,omitempty" mapstructure:"jira-token"`
+	JIRASecret  string        `json:"jira-secret,omitempty" mapstructure:"jira-secret"`
+	JIRAKey     string        `json:"jira-private-key-path,omitempty" mapstructure:"jira-private-key-path"`
+	JIRACKey    string        `json:"jira-consumer-key,omitempty" mapstructure:"jira-consumer-key"`
 	RepoName    string        `json:"repo-name" mapstructure:"repo-name"`
 	JIRAURI     string        `json:"jira-uri" mapstructure:"jira-uri"`
 	JIRAProject string        `json:"jira-project" mapstructure:"jira-project"`
@@ -243,9 +252,11 @@ func (c *Config) SaveConfig() error {
 	c.cmdConfig.Set("since", time.Now().Format(DateFormat))
 
 	var cf configFile
-	c.cmdConfig.Unmarshal(&cf)
+	var err error
+	err = c.cmdConfig.Unmarshal(&cf)
+	var b []byte
 
-	b, err := json.MarshalIndent(cf, "", "  ")
+	b, err = json.MarshalIndent(cf, "", "  ")
 	if err != nil {
 		return err
 	}

@@ -29,18 +29,18 @@ type JsonFieldMapper struct {
 }
 
 func (m DefaultFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error) {
-	var result interface{} = nil
-	var err error = nil
-
 	switch fieldKey {
 	case GitHubID:
 		fallthrough
 	case GitHubNumber:
-		result, err = jIssue.Fields.Unknowns.Int(m.Config.GetCompleteFieldKey(fieldKey))
+		return jIssue.Fields.Unknowns.Int(m.Config.GetCompleteFieldKey(fieldKey))
 	default:
-		result, err = jIssue.Fields.Unknowns.String(m.Config.GetCompleteFieldKey(fieldKey))
+		result, exists := jIssue.Fields.Unknowns.Value(m.Config.GetCompleteFieldKey(fieldKey))
+		if !exists {
+			return nil, errors.New("Field not found")
+		}
+		return result, nil
 	}
-	return result, err
 }
 
 func (m DefaultFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {
@@ -139,8 +139,7 @@ func (m DefaultFieldMapper) GetFieldIDs(client jira.Client) (map[FieldKey]string
 
 func (m JsonFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error) {
 
-	var result interface{} = nil
-	var err error = nil
+	var result interface{}
 
 	jsonGithubData, err := jIssue.Fields.Unknowns.String(m.Config.GetCompleteFieldKey(GitHubData))
 	if  err != nil {
@@ -167,7 +166,7 @@ func (m JsonFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (i
 	case LastISUpdate:
 		result = parsedJson["lastIssueSyncUpdate"]
 	}
-	return result, err
+	return result, nil
 }
 
 func (m JsonFieldMapper) MapFields(issue *github.Issue) jira.IssueFields {

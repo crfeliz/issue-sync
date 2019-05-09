@@ -46,7 +46,7 @@ var RootCmd = &cobra.Command{
 			if err := lib.CompareIssues(config, ghClient, jiraClient); err != nil {
 				log.Error(err)
 			}
-			if !config.IsDryRun() {
+			if !config.IsDryRun() && !config.FullSyncAlways() {
 				if err := config.SaveConfig(); err != nil {
 					log.Error(err)
 				}

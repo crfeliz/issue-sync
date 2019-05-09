@@ -65,7 +65,19 @@ func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClien
 
 func jiraCustomFieldsNeedUpdate(config cfg.Config, jIssue jira.Issue, fieldKey cfg.FieldKey, githubFieldValue string) bool {
 	jiraField, err := config.GetFieldMapper().GetFieldValue(&jIssue, fieldKey)
-	return err != nil || jiraField.(string) != githubFieldValue
+
+	// update if there was an error retrieving the value
+	if err != nil {
+		return true
+	}
+
+	if jiraField == nil {
+		// treat empty string and nil as equal
+		return len(githubFieldValue) != 0
+	} else {
+		// update if there is any difference between actual values
+		return jiraField.(string) != githubFieldValue
+	}
 }
 
 // DidIssueChange tests each of the relevant fields on the provided JIRA and GitHub issue
@@ -88,7 +100,7 @@ func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssu
 	ghLabelsString := strings.Join(ghLabels, ",")
 
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubLabels, ghLabelsString)
-	anyDifferent = anyDifferent || (ghIssue.ProjectCard != nil && jIssue.Fields.Status.Name != ghIssue.ProjectCard.GetColumnName())
+	anyDifferent = anyDifferent || (ghIssue.ProjectCard != nil && strings.ToLower(jIssue.Fields.Status.Name) != strings.ToLower(ghIssue.ProjectCard.GetColumnName()))
 	log.Debugf("Issues have any differences: %t", anyDifferent)
 
 	return anyDifferent
