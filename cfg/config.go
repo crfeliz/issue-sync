@@ -37,7 +37,7 @@ const (
 	GitHubReporter FieldKey = iota
 	GitHubCommits  FieldKey = iota
 	LastISUpdate   FieldKey = iota
-	GitHubData 	   FieldKey = iota
+	GitHubIssueData 	   FieldKey = iota
 )
 
 // Config is the root configuration object the application creates.
@@ -111,7 +111,7 @@ func (c *Config) LoadJIRAConfig(client jira.Client) error {
 	c.project = *proj
 
 
-	if c.IsUsingGitHubDataField() {
+	if c.IsUsingGitHubIssueDataField() {
 		c.fieldMapper = JsonFieldMapper{
 			Config: c,
 		}
@@ -193,7 +193,7 @@ func (c Config) GetFieldID(key FieldKey) string {
 	return v
 }
 
-func (c Config) IsUsingGitHubDataField() bool {
+func (c Config) IsUsingGitHubIssueDataField() bool {
 	return c.cmdConfig.GetString("github-to-jira-field-mapper") == "json-field-mapper"
 }
 

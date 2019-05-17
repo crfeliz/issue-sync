@@ -364,7 +364,7 @@ func ListIssues(j Client, ghIssueIds []int64) ([]jira.Issue, error) {
 	var jql string
 	// If the list of IDs is too long, we get a 414 Request-URI Too Large, so in that case,
 	// we'll need to do the filtering ourselves.
-	if !j.getConfig().IsUsingGitHubDataField() && len(ghIssueIds) < maxJQLIssueLength {
+	if !j.getConfig().IsUsingGitHubIssueDataField() && len(ghIssueIds) < maxJQLIssueLength {
 		jql = fmt.Sprintf("project='%s' AND cf[%s] in (%s)",
 			j.getConfig().GetProjectKey(), j.getConfig().GetFieldID(cfg.GitHubID), strings.Join(ghIssueIdStrs, ","))
 	} else {
@@ -403,7 +403,7 @@ func ListIssues(j Client, ghIssueIds []int64) ([]jira.Issue, error) {
 	}
 
 	var issues []jira.Issue
-	if !j.getConfig().IsUsingGitHubDataField() && len(ghIssueIds) < maxJQLIssueLength {
+	if !j.getConfig().IsUsingGitHubIssueDataField() && len(ghIssueIds) < maxJQLIssueLength {
 		// The issues were already filtered by our JQL, so use as is
 		issues = jiraIssues
 	} else {

@@ -141,7 +141,7 @@ func (m JsonFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (i
 
 	var result interface{}
 
-	jsonGithubData, err := jIssue.Fields.Unknowns.String(m.Config.GetCompleteFieldKey(GitHubData))
+	jsonGithubData, err := jIssue.Fields.Unknowns.String(m.Config.GetCompleteFieldKey(GitHubIssueData))
 	if  err != nil {
 		return nil, err
 	}
@@ -198,7 +198,7 @@ func (m JsonFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.Issue
 	}
 
 	j, _ := json.Marshal(data)
-	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubData)] = string(j)
+	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubIssueData)] = string(j)
 
 	return fields
 }
@@ -220,14 +220,14 @@ func (m JsonFieldMapper) GetFieldIDs(client jira.Client) (map[FieldKey]string, e
 
 	for _, field := range *jFields {
 		switch field.Name {
-		case "GitHub Data":
-			fieldIDs[GitHubData] = fmt.Sprint(field.Schema.CustomID)
+		case "GitHub Issue Data":
+			fieldIDs[GitHubIssueData] = fmt.Sprint(field.Schema.CustomID)
 		}
 	}
 
-	_, ok := fieldIDs[GitHubData]
+	_, ok := fieldIDs[GitHubIssueData]
 	if !ok {
-		return fieldIDs, errors.New("could not find ID of 'GitHub Data' custom field; check that it is named correctly")
+		return fieldIDs, errors.New("could not find ID of 'GitHub Issue Data' custom field; check that it is named correctly")
 	}
 
 	m.Config.log.Debug("All fields have been checked.")
