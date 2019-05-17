@@ -1,6 +1,7 @@
 package lib
 
 import (
+	"fmt"
 	"github.com/andygrunwald/go-jira"
 	"github.com/coreos/issue-sync/cfg"
 	"github.com/coreos/issue-sync/lib/issuesyncgithub"
@@ -113,13 +114,19 @@ func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssu
 	anyDifferent = anyDifferent || (ghIssue.GetBody() != jIssue.Fields.Description)
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubStatus, ghIssue.GetState())
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubReporter, ghIssue.User.GetLogin())
-	commitIdsInJira, err := config.GetFieldMapper().GetFieldValue(&jIssue, cfg.GitHubCommits)
+	commits, err := config.GetFieldMapper().GetFieldValue(&jIssue, cfg.GitHubCommits)
+	commitIdsInJiraUntyped := commits.([]interface{})
 
 	if err != nil {
 		return true
 	}
 
-	anyDifferent = anyDifferent || sliceStringsEq(commitIdsInJira.([]string), ghIssue.CommitIds)
+	commitIdsInJira := make([]string, len(commitIdsInJiraUntyped))
+	for i, v := range commitIdsInJiraUntyped {
+		commitIdsInJira[i] = fmt.Sprint(v)
+	}
+
+	anyDifferent = anyDifferent || sliceStringsEq(commitIdsInJira, ghIssue.CommitIds)
 	ghLabels := make([]string, len(ghIssue.Labels))
 	for i, l := range ghIssue.Labels {
 		ghLabels[i] = *l.Name
