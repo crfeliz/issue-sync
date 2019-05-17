@@ -165,6 +165,9 @@ func (m JsonFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (i
 		result = parsedJson["githubReporter"]
 	case GitHubCommits:
 		result = parsedJson["githubCommits"]
+		if result == nil {
+			result = make([]interface{}, 0)
+		}
 	case LastISUpdate:
 		result = parsedJson["lastIssueSyncUpdate"]
 	}
