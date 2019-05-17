@@ -15,10 +15,11 @@ import (
 // it calls UpdateIssue; if no JIRA issue already exists, it calls CreateIssue.
 func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClient issuesyncjira.Client) error {
 	log := config.GetLogger()
+	user, repoName := config.GetRepo()
 
 	log.Debug("Collecting issues")
 
-	ghIssues, err := ghClient.ListIssues()
+	ghIssues, err := issuesyncgithub.ListIssues(ghClient, log, config.GetTimeout(), user, repoName, config.GetSinceParam())
 	if err != nil {
 		return err
 	}
@@ -80,6 +81,25 @@ func jiraCustomFieldsNeedUpdate(config cfg.Config, jIssue jira.Issue, fieldKey c
 	}
 }
 
+func sliceStringsEq(a []string, b []string) bool {
+
+	if (a == nil) != (b == nil) {
+		return false;
+	}
+
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DidIssueChange tests each of the relevant fields on the provided JIRA and GitHub issue
 // and returns whether or not they differ.
 func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue jira.Issue) bool {
@@ -93,6 +113,13 @@ func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssu
 	anyDifferent = anyDifferent || (ghIssue.GetBody() != jIssue.Fields.Description)
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubStatus, ghIssue.GetState())
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubReporter, ghIssue.User.GetLogin())
+	commitIdsInJira, err := config.GetFieldMapper().GetFieldValue(&jIssue, cfg.GitHubCommits)
+
+	if err != nil {
+		return true
+	}
+
+	anyDifferent = anyDifferent || sliceStringsEq(commitIdsInJira.([]string), ghIssue.CommitIds)
 	ghLabels := make([]string, len(ghIssue.Labels))
 	for i, l := range ghIssue.Labels {
 		ghLabels[i] = *l.Name

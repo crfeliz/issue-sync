@@ -26,13 +26,14 @@ var jCommentIDRegex = regexp.MustCompile("^Comment \\[\\(ID (\\d+)\\)\\|")
 // UpdateComment; if it doesn't, it calls CreateComment.
 func CompareComments(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue, ghClient issuesyncgithub.Client, jClient issuesyncjira.Client) error {
 	log := config.GetLogger()
+	user, repoName := config.GetRepo()
 
 	if ghIssue.GetComments() == 0 {
 		log.Debugf("Issue #%d has no comments, skipping.", *ghIssue.Number)
 		return nil
 	}
 
-	ghComments, err := ghClient.ListComments(ghIssue)
+	ghComments, err := issuesyncgithub.ListComments(ghClient, log, config.GetTimeout(), user, repoName, ghIssue)
 	if err != nil {
 		return err
 	}

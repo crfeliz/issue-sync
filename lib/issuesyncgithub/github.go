@@ -3,8 +3,8 @@ package issuesyncgithub
 import (
 	"context"
 	"fmt"
+	"github.com/Sirupsen/logrus"
 	"github.com/coreos/issue-sync/lib/models"
-
 	"time"
 
 	"github.com/cenkalti/backoff"
@@ -17,28 +17,95 @@ import (
 // use. It allows us to swap in other implementations, such as a dry run
 // clients, or mock clients for testing.
 type Client interface {
-	ListIssues() ([]models.ExtendedGithubIssue, error)
-	//GetCurrentProjectCardAndCommitIds(issue *github.Issue) (*github.ProjectCard, error)
-	ListComments(issue github.Issue) ([]*github.IssueComment, error)
-	GetUser(login string) (github.User, error)
-	GetRateLimits() (github.RateLimits, error)
+	listIssueEvents(ctx context.Context, owner, repo string, number int, page int) ([]*github.IssueEvent, *github.Response, error)
+	listByRepo(ctx context.Context, owner string, repo string, page int, since time.Time) ([]*github.Issue, *github.Response, error)
+	getRepository(ctx context.Context, owner string, repo string) (*github.Repository, *github.Response, error)
+	listComments(ctx context.Context, owner string, repo string, number int) ([]*github.IssueComment, *github.Response, error)
+	getUser(ctx context.Context, user string) (*github.User, *github.Response, error)
+	getRateLimits(ctx context.Context) (*github.RateLimits, *github.Response, error)
 }
 
 // realGHClient is a standard GitHub clients, that actually makes all of the
 // requests against the GitHub REST API. It is the canonical implementation
 // of Client.
 type realGHClient struct {
-	config cfg.Config
 	client github.Client
 }
 
-func (g realGHClient) GetCurrentProjectCardAndCommitIds(issue *github.Issue) (*github.ProjectCard, []string, error) {
-	log := g.config.GetLogger()
+func (g realGHClient) listIssueEvents(ctx context.Context, owner, repo string, number int, page int)  ([]*github.IssueEvent, *github.Response, error) {
+	return g.client.Issues.ListIssueEvents(ctx, owner, repo, number, &github.ListOptions{
+		Page:    page,
+		PerPage: 100,
+	})
+}
 
+func (g realGHClient) getRepository(ctx context.Context, owner string, repo string) (*github.Repository, *github.Response, error) {
+	return g.client.Repositories.Get(ctx, owner, repo)
+}
+
+func (g realGHClient) listByRepo(ctx context.Context, owner string, repo string, page int, since time.Time) ([]*github.Issue, *github.Response, error) {
+	return g.client.Issues.ListByRepo(ctx, owner, repo, &github.IssueListByRepoOptions{
+		Since:     since,
+		State:     "all",
+		Sort:      "created",
+		Direction: "asc",
+		ListOptions: github.ListOptions{
+			Page:    page,
+			PerPage: 100,
+		},
+	})
+}
+
+func (g realGHClient) listComments(ctx context.Context, owner string, repo string, number int) ([]*github.IssueComment, *github.Response, error) {
+	return g.client.Issues.ListComments(ctx, owner, repo, number, &github.IssueListCommentsOptions{
+		Sort:      "created",
+		Direction: "asc",
+	})
+}
+
+func (g realGHClient) getUser(ctx context.Context, user string) (*github.User, *github.Response, error) {
+	return g.client.Users.Get(context.Background(), user)
+}
+
+func (g realGHClient) getRateLimits(ctx context.Context) (*github.RateLimits, *github.Response, error) {
+	return g.client.RateLimits(ctx)
+}
+
+type TestGHClient struct {
+	handleListIssueEvents func(ctx context.Context, owner, repo string, number int, page int) ([]*github.IssueEvent, *github.Response, error)
+	handleListByRepo func(ctx context.Context, owner string, repo string, page int, since time.Time) ([]*github.Issue, *github.Response, error)
+	handleGetRepository func(ctx context.Context, owner string, repo string) (*github.Repository, *github.Response, error)
+	handleListComments func(ctx context.Context, owner string, repo string, number int) ([]*github.IssueComment, *github.Response, error)
+	handleGetUser func(ctx context.Context, user string) (*github.User, *github.Response, error)
+	handleGetRateLimits func(ctx context.Context) (*github.RateLimits, *github.Response, error)
+}
+
+func (g TestGHClient) listIssueEvents(ctx context.Context, owner, repo string, number int, page int) ([]*github.IssueEvent, *github.Response, error) {
+	return g.handleListIssueEvents(ctx, owner, repo, number, page)
+}
+
+func (g TestGHClient) getRepository(ctx context.Context, owner string, repo string) (*github.Repository, *github.Response, error) {
+	return g.handleGetRepository(ctx, owner, repo)
+}
+
+func (g TestGHClient) listByRepo(ctx context.Context, owner string, repo string, page int, since time.Time) ([]*github.Issue, *github.Response, error) {
+	return g.handleListByRepo(ctx, owner, repo, page, since)
+}
+
+func (g TestGHClient) listComments(ctx context.Context, owner string, repo string, number int) ([]*github.IssueComment, *github.Response, error) {
+	return g.handleListComments(ctx, owner, repo, number)
+}
+
+func (g TestGHClient) getUser(ctx context.Context, user string) (*github.User, *github.Response, error) {
+	return g.handleGetUser(ctx, user)
+}
+
+func (g TestGHClient) getRateLimits(ctx context.Context) (*github.RateLimits, *github.Response, error) {
+	return g.getRateLimits(ctx)
+}
+
+func getCurrentProjectCardAndCommitIds(g Client, log logrus.Entry, timeout time.Duration, user string, repoName string, issue *github.Issue) (*github.ProjectCard, []string, error) {
 	ctx := context.Background()
-
-	user, repo := g.config.GetRepo()
-
 	pages := 1
 
 	var currentProjectCard *github.ProjectCard
@@ -47,11 +114,8 @@ func (g realGHClient) GetCurrentProjectCardAndCommitIds(issue *github.Issue) (*g
 
 	// search for the current project card
 	for page := 1; page <= pages; page++ {
-		is, res, err := g.request(func() (interface{}, *github.Response, error) {
-			return g.client.Issues.ListIssueEvents(ctx, user, repo, issue.GetNumber(), &github.ListOptions{
-				Page:    page,
-				PerPage: 100,
-			})
+		is, res, err := request(log, timeout, func() (interface{}, *github.Response, error) {
+			return g.listIssueEvents(ctx, user, repoName, issue.GetNumber(), page)
 		})
 		if err != nil {
 			return nil, nil, err
@@ -78,37 +142,24 @@ func (g realGHClient) GetCurrentProjectCardAndCommitIds(issue *github.Issue) (*g
 		pages = res.LastPage
 	}
 
-	log.Debug("Found current Project Card for issue #%d", issue.GetNumber())
+	log.Debugf("Found current Project Card for issue #%d", issue.GetNumber())
 
 	return currentProjectCard, commitIds, nil
 }
 
 // ListIssues returns the list of GitHub issues since the last run of the tool.
-func (g realGHClient) ListIssues() ([]models.ExtendedGithubIssue, error) {
-	log := g.config.GetLogger()
-
+func ListIssues(g Client, log logrus.Entry, timeout time.Duration, user string, repoName string, since time.Time) ([]models.ExtendedGithubIssue, error) {
 	ctx := context.Background()
 
-	user, repoName := g.config.GetRepo()
-
-	repo, _, _ := g.client.Repositories.Get(ctx, user, repoName)
+	repo, _, _ := g.getRepository(ctx, user, repoName)
 
 	// Set it so that it will run the loop once, and it'll be updated in the loop.
 	pages := 1
 	var issues []models.ExtendedGithubIssue
 
 	for page := 1; page <= pages; page++ {
-		is, res, err := g.request(func() (interface{}, *github.Response, error) {
-			return g.client.Issues.ListByRepo(ctx, user, repoName, &github.IssueListByRepoOptions{
-				Since:     g.config.GetSinceParam(),
-				State:     "all",
-				Sort:      "created",
-				Direction: "asc",
-				ListOptions: github.ListOptions{
-					Page:    page,
-					PerPage: 100,
-				},
-			})
+		is, res, err := request(log, timeout, func() (interface{}, *github.Response, error) {
+			return g.listByRepo(ctx, user, repoName, page, since)
 		})
 		if err != nil {
 			return nil, err
@@ -127,7 +178,7 @@ func (g realGHClient) ListIssues() ([]models.ExtendedGithubIssue, error) {
 				var currentProjectCard *github.ProjectCard
 				var commitIds []string
 				if repo.GetHasProjects() {
-					currentProjectCard, commitIds, _ = g.GetCurrentProjectCardAndCommitIds(v)
+					currentProjectCard, commitIds, _ = getCurrentProjectCardAndCommitIds(g, log, timeout, user, repoName, v)
 				}
 
 				issuePage = append(issuePage, models.ExtendedGithubIssue{Issue: *v, ProjectCard: currentProjectCard, CommitIds: commitIds})
@@ -145,16 +196,11 @@ func (g realGHClient) ListIssues() ([]models.ExtendedGithubIssue, error) {
 
 // ListComments returns the list of all comments on a GitHub issue in
 // ascending order of creation.
-func (g realGHClient) ListComments(issue github.Issue) ([]*github.IssueComment, error) {
-	log := g.config.GetLogger()
+func ListComments(g Client, log logrus.Entry, timeout time.Duration, user string, repoName string, issue github.Issue) ([]*github.IssueComment, error) {
 
 	ctx := context.Background()
-	user, repo := g.config.GetRepo()
-	c, _, err := g.request(func() (interface{}, *github.Response, error) {
-		return g.client.Issues.ListComments(ctx, user, repo, issue.GetNumber(), &github.IssueListCommentsOptions{
-			Sort:      "created",
-			Direction: "asc",
-		})
+	c, _, err := request(log, timeout, func() (interface{}, *github.Response, error) {
+		return g.listComments(ctx, user, repoName, issue.GetNumber())
 	})
 	if err != nil {
 		log.Errorf("Error retrieving GitHub comments for issue #%d. Error: %v.", issue.GetNumber(), err)
@@ -170,15 +216,13 @@ func (g realGHClient) ListComments(issue github.Issue) ([]*github.IssueComment, 
 }
 
 // GetUser returns a GitHub user from its login.
-func (g realGHClient) GetUser(login string) (github.User, error) {
-	log := g.config.GetLogger()
-
-	u, _, err := g.request(func() (interface{}, *github.Response, error) {
-		return g.client.Users.Get(context.Background(), login)
+func GetUser(g Client, log logrus.Entry, timeout time.Duration, userName string) (github.User, error) {
+	u, _, err := request(log, timeout, func() (interface{}, *github.Response, error) {
+		return g.getUser(context.Background(), userName)
 	})
 
 	if err != nil {
-		log.Errorf("Error retrieving GitHub user %s. Error: %v", login, err)
+		log.Errorf("Error retrieving GitHub user %s. Error: %v", userName, err)
 	}
 
 	user, ok := u.(*github.User)
@@ -192,13 +236,11 @@ func (g realGHClient) GetUser(login string) (github.User, error) {
 
 // GetRateLimits returns the current rate limits on the GitHub API. This is a
 // simple and lightweight request that can also be used simply for testing the API.
-func (g realGHClient) GetRateLimits() (github.RateLimits, error) {
-	log := g.config.GetLogger()
-
+func GetRateLimits(g Client, log logrus.Entry, timeout time.Duration) (github.RateLimits, error) {
 	ctx := context.Background()
 
-	rl, _, err := g.request(func() (interface{}, *github.Response, error) {
-		return g.client.RateLimits(ctx)
+	rl, _, err := request(log, timeout, func() (interface{}, *github.Response, error) {
+		return g.getRateLimits(ctx)
 	})
 	if err != nil {
 		log.Errorf("Error connecting to GitHub; check your token. Error: %v", err)
@@ -220,8 +262,7 @@ const retryBackoffRoundRatio = time.Millisecond / time.Nanosecond
 // returns the expected value and the GitHub API response, as well as a nil
 // error. If it continues to fail until a maximum time is reached, it returns
 // a nil result as well as the returned HTTP response and a timeout error.
-func (g realGHClient) request(f func() (interface{}, *github.Response, error)) (interface{}, *github.Response, error) {
-	log := g.config.GetLogger()
+func request(log logrus.Entry, timeout time.Duration, f func() (interface{}, *github.Response, error)) (interface{}, *github.Response, error) {
 
 	var ret interface{}
 	var res *github.Response
@@ -233,7 +274,7 @@ func (g realGHClient) request(f func() (interface{}, *github.Response, error)) (
 	}
 
 	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = g.config.GetTimeout()
+	b.MaxElapsedTime = timeout
 
 	backoffErr := backoff.RetryNotify(op, b, func(err error, duration time.Duration) {
 		// Round to a whole number of milliseconds
@@ -265,12 +306,11 @@ func NewClient(config cfg.Config) (Client, error) {
 	client := github.NewClient(tc)
 
 	ret = realGHClient{
-		config: config,
 		client: *client,
 	}
 
 	// Make a request so we can check that we can connect fine.
-	_, err := ret.GetRateLimits()
+	_, _, err := ret.getRateLimits(context.Background())
 	if err != nil {
 		return realGHClient{}, err
 	}
@@ -278,3 +318,8 @@ func NewClient(config cfg.Config) (Client, error) {
 
 	return ret, nil
 }
+
+func NewTestClient() TestGHClient {
+	return TestGHClient {}
+}
+

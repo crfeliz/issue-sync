@@ -35,6 +35,7 @@ const (
 	GitHubLabels   FieldKey = iota
 	GitHubStatus   FieldKey = iota
 	GitHubReporter FieldKey = iota
+	GitHubCommits  FieldKey = iota
 	LastISUpdate   FieldKey = iota
 	GitHubData 	   FieldKey = iota
 )
@@ -82,7 +83,7 @@ func NewConfig(cmd *cobra.Command) (Config, error) {
 
 	config.cmdFile = config.cmdConfig.ConfigFileUsed()
 
-	config.log = *newLogger("issue-sync", config.cmdConfig.GetString("log-level"))
+	config.log = *NewLogger("issue-sync", config.cmdConfig.GetString("log-level"))
 
 	if err := config.validateConfig(); err != nil {
 		return Config{}, err
@@ -330,7 +331,7 @@ func parseLogLevel(level string) logrus.Level {
 // newLogger uses the log level provided in the configuration
 // to create a new logrus logger and set fields on it to make
 // it easy to use.
-func newLogger(app, level string) *logrus.Entry {
+func NewLogger(app, level string) *logrus.Entry {
 	logger := logrus.New()
 	logger.Level = parseLogLevel(level)
 	logEntry := logrus.NewEntry(logger).WithFields(logrus.Fields{

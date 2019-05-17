@@ -51,7 +51,6 @@ func (m DefaultFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.Is
 		Project:     m.Config.GetProject(),
 		Summary:     issue.GetTitle(),
 		Description: issue.GetBody(),
-		Labels: 	 issue.CommitIds,
 		Unknowns:    map[string]interface{}{},
 	}
 
@@ -164,6 +163,8 @@ func (m JsonFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (i
 		result = parsedJson["githubStatus"]
 	case GitHubReporter:
 		result = parsedJson["githubReporter"]
+	case GitHubCommits:
+		result = parsedJson["githubCommits"]
 	case LastISUpdate:
 		result = parsedJson["lastIssueSyncUpdate"]
 	}
@@ -178,7 +179,6 @@ func (m JsonFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.Issue
 		Project:     m.Config.GetProject(),
 		Summary:     issue.GetTitle(),
 		Description: issue.GetBody(),
-		Labels: 	 issue.CommitIds,
 		Unknowns:    map[string]interface{}{},
 	}
 
@@ -193,6 +193,7 @@ func (m JsonFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.Issue
 		"githubStatus":issue.GetState(),
 		"githubReporter": issue.User.GetLogin(),
 		"githubLabels": strings.Join(githubLabels, ","),
+		"githubCommits": issue.CommitIds,
 		"lastIssueSyncUpdate": time.Now().Format(DateFormat),
 	}
 

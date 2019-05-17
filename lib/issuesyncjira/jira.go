@@ -257,39 +257,6 @@ func request(config cfg.Config, f func() (interface{}, *jira.Response, error)) (
 	return ret, res, backoffErr
 }
 
-// request takes an API function from the JIRA library
-// and calls it with exponential backoff. If the function succeeds, it
-// returns the expected value and the JIRA API response, as well as a nil
-// error. If it continues to fail until a maximum time is reached, it returns
-// a nil result as well as the returned HTTP response and a timeout error.
-//
-// This function is identical to that in realJIRAClient.
-func (j dryrunJIRAClient) request(f func() (interface{}, *jira.Response, error)) (interface{}, *jira.Response, error) {
-	log := j.config.GetLogger()
-
-	var ret interface{}
-	var res *jira.Response
-
-	op := func() error {
-		var err error
-		ret, res, err = f()
-		return err
-	}
-
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = j.config.GetTimeout()
-
-	backoffErr := backoff.RetryNotify(op, b, func(err error, duration time.Duration) {
-		// Round to a whole number of milliseconds
-		duration /= retryBackoffRoundRatio // Convert nanoseconds to milliseconds
-		duration *= retryBackoffRoundRatio // Convert back so it appears correct
-
-		log.Errorf("Error performing operation; retrying in %v: %v", duration, err)
-	})
-
-	return ret, res, backoffErr
-}
-
 // NewClient creates a new Client and configures it with
 // the config object provided. The type of clients created depends
 // on the configuration; currently, it creates either a standard
@@ -526,10 +493,11 @@ const maxBodyLength = 1 << 15
 
 // CreateComment adds a comment to the provided JIRA issue using the fields from
 // the provided GitHub comment. It then returns the created comment.
-func CreateComment(j Client, jIssue jira.Issue, ghComment github.IssueComment, github issuesyncgithub.Client) (jira.Comment, error) {
-	log := j.getConfig().GetLogger()
+func CreateComment(j Client, jIssue jira.Issue, ghComment github.IssueComment, g issuesyncgithub.Client) (jira.Comment, error) {
+	config := j.getConfig()
+	log := config.GetLogger()
 
-	user, err := github.GetUser(ghComment.User.GetLogin())
+	user, err := issuesyncgithub.GetUser(g, log, config.GetTimeout(), ghComment.User.GetLogin())
 	if err != nil {
 		return jira.Comment{}, err
 	}
@@ -554,7 +522,7 @@ func CreateComment(j Client, jIssue jira.Issue, ghComment github.IssueComment, g
 		Body: body,
 	}
 
-	ghUser, err := github.GetUser(ghComment.User.GetLogin())
+	ghUser, err := issuesyncgithub.GetUser(g, log, config.GetTimeout(), ghComment.User.GetLogin())
 	if err != nil {
 		return jira.Comment{}, err
 	}
@@ -577,10 +545,11 @@ func CreateComment(j Client, jIssue jira.Issue, ghComment github.IssueComment, g
 // UpdateComment updates a comment (identified by the `id` parameter) on a given
 // JIRA with a new body from the fields of the given GitHub comment. It returns
 // the updated comment.
-func UpdateComment(j Client, issue jira.Issue, id string, comment github.IssueComment, github issuesyncgithub.Client) (jira.Comment, error) {
-	log := j.getConfig().GetLogger()
+func UpdateComment(j Client, issue jira.Issue, id string, comment github.IssueComment, g issuesyncgithub.Client) (jira.Comment, error) {
+	config := j.getConfig()
+	log := config.GetLogger()
 
-	user, err := github.GetUser(comment.User.GetLogin())
+	user, err := issuesyncgithub.GetUser(g, log, config.GetTimeout(), comment.User.GetLogin())
 	if err != nil {
 		return jira.Comment{}, err
 	}
