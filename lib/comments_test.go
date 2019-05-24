@@ -28,7 +28,7 @@ On Tue, May 14, 2019 at 8:56 AM Demeter Harvester <notifications@github.com> wro
 > —
 > You are receiving this because you authored the thread.
 > Reply to this email directly, view it on GitHub
-> <https://github.com/pull olympus/the-planets/issues/44?email_source=notifications&email_token=AAFITERB5I7BSKDSU2WWAXLPVLAJ7A5CNFSM4HMZ5SZKYY3PNVWWK3TUL52HS4DFVREXG43VMVBW63LNMVXHJKTDN5WW2ZLOORPWSZGODVLR27Y#issuecomment-492248447>,
+> <https://github.com/pull olympus/the-planets/issues/44?email_source=notifications&email_token=BLOOP#issuecomment-492248447>,
 > or mute the thread
 > <https://github.com/notifications/unsubscribe-auth/AAFITESKFLMPNDSQS3P6GX3PVLAJ7ANCNFSM4HMZ5SZA>
 > .
@@ -93,6 +93,6 @@ func TestJiraCommentRegexParsesSimpleCommentWithDashInUsername(t *testing.T) {
 	}
 
 	if fields[5] != complexCommentBody {
-		t.Fatalf("Expected field[5] = Bla blibidy bloo bla; Got field[5] = %s", fields[5])
+		t.Fatalf("Expected field[5] = %s; Got field[5] = %s", complexCommentBody, fields[5])
 	}
 }
