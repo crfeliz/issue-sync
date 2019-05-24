@@ -84,16 +84,27 @@ func jiraCustomFieldsNeedUpdate(config cfg.Config, jIssue jira.Issue, fieldKey c
 
 func sliceStringsEq(a []string, b []string) bool {
 
-	if (a == nil) != (b == nil) {
-		return false;
+	var aa []string
+	var bb []string
+
+	if a == nil {
+		aa = make([]string, 0)
+	} else {
+		aa = a
 	}
 
-	if len(a) != len(b) {
+	if b == nil {
+		bb = make([]string, 0)
+	} else {
+		bb = b
+	}
+
+	if len(aa) != len(bb) {
 		return false
 	}
 
-	for i := range a {
-		if a[i] != b[i] {
+	for i := range aa {
+		if aa[i] != bb[i] {
 			return false
 		}
 	}
@@ -126,7 +137,7 @@ func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssu
 		commitIdsInJira[i] = fmt.Sprint(v)
 	}
 
-	anyDifferent = anyDifferent || sliceStringsEq(commitIdsInJira, ghIssue.CommitIds)
+	anyDifferent = anyDifferent || !sliceStringsEq(commitIdsInJira, ghIssue.CommitIds)
 	ghLabels := make([]string, len(ghIssue.Labels))
 	for i, l := range ghIssue.Labels {
 		ghLabels[i] = *l.Name

@@ -71,7 +71,7 @@ func TestJiraCommentRegexParsesSimpleComment(t *testing.T) {
 
 func TestJiraCommentRegexParsesSimpleCommentWithDashInUsername(t *testing.T) {
 	var fields = jCommentRegex.FindStringSubmatch(complexComment)
-	
+
 	if len(fields) != 6 {
 		t.Fatalf("Regex failed to parse fields %v", fields)
 	}
