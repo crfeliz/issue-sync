@@ -234,27 +234,6 @@ func GetUser(g Client, log logrus.Entry, timeout time.Duration, userName string)
 	return *user, nil
 }
 
-// GetRateLimits returns the current rate limits on the GitHub API. This is a
-// simple and lightweight request that can also be used simply for testing the API.
-func GetRateLimits(g Client, log logrus.Entry, timeout time.Duration) (github.RateLimits, error) {
-	ctx := context.Background()
-
-	rl, _, err := request(log, timeout, func() (interface{}, *github.Response, error) {
-		return g.getRateLimits(ctx)
-	})
-	if err != nil {
-		log.Errorf("Error connecting to GitHub; check your token. Error: %v", err)
-		return github.RateLimits{}, err
-	}
-	rate, ok := rl.(*github.RateLimits)
-	if !ok {
-		log.Errorf("Get GitHub rate limits did not return rate limits! Got: %v", rl)
-		return github.RateLimits{}, fmt.Errorf("Get GitHub rate limits failed: expected *github.RateLimits; got %T", rl)
-	}
-
-	return *rate, nil
-}
-
 const retryBackoffRoundRatio = time.Millisecond / time.Nanosecond
 
 // request takes an API function from the GitHub library
