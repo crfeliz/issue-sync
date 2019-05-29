@@ -33,7 +33,7 @@ func CompareComments(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue,
 		return nil
 	}
 
-	ghComments, err := issuesyncgithub.ListComments(ghClient, log, config.GetTimeout(), user, repoName, ghIssue)
+	ghComments, err := issuesyncgithub.ListComments(ghClient, config.GetTimeout(), user, repoName, ghIssue)
 	if err != nil {
 		return err
 	}
@@ -71,7 +71,7 @@ func CompareComments(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue,
 			continue
 		}
 
-		comment, err := issuesyncjira.CreateComment(jClient, jIssue, *ghComment, ghClient)
+		comment, err := issuesyncjira.CreateComment(jClient, config.GetTimeout(), jIssue, *ghComment, ghClient)
 		if err != nil {
 			return err
 		}
@@ -96,7 +96,7 @@ func UpdateComment(config cfg.Config, ghComment github.IssueComment, jComment ji
 		return nil
 	}
 
-	comment, err := issuesyncjira.UpdateComment(jClient, jIssue, jComment.ID, ghComment, ghClient)
+	comment, err := issuesyncjira.UpdateComment(jClient, config.GetTimeout(), jIssue, jComment.ID, ghComment, ghClient)
 	if err != nil {
 		return err
 	}

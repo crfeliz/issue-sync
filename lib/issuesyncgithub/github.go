@@ -17,6 +17,7 @@ import (
 // use. It allows us to swap in other implementations, such as a dry run
 // clients, or mock clients for testing.
 type Client interface {
+	getLogger() logrus.Entry
 	listIssueEvents(ctx context.Context, owner, repo string, number int, page int) ([]*github.IssueEvent, *github.Response, error)
 	listByRepo(ctx context.Context, owner string, repo string, page int, since time.Time) ([]*github.Issue, *github.Response, error)
 	getRepository(ctx context.Context, owner string, repo string) (*github.Repository, *github.Response, error)
@@ -30,6 +31,11 @@ type Client interface {
 // of Client.
 type realGHClient struct {
 	client github.Client
+	log logrus.Entry
+}
+
+func (g realGHClient) getLogger() logrus.Entry {
+	return g.log
 }
 
 func (g realGHClient) listIssueEvents(ctx context.Context, owner, repo string, number int, page int)  ([]*github.IssueEvent, *github.Response, error) {
@@ -72,12 +78,17 @@ func (g realGHClient) getRateLimits(ctx context.Context) (*github.RateLimits, *g
 }
 
 type TestGHClient struct {
+	handleGetLogger func() logrus.Entry
 	handleListIssueEvents func(ctx context.Context, owner, repo string, number int, page int) ([]*github.IssueEvent, *github.Response, error)
 	handleListByRepo func(ctx context.Context, owner string, repo string, page int, since time.Time) ([]*github.Issue, *github.Response, error)
 	handleGetRepository func(ctx context.Context, owner string, repo string) (*github.Repository, *github.Response, error)
 	handleListComments func(ctx context.Context, owner string, repo string, number int) ([]*github.IssueComment, *github.Response, error)
 	handleGetUser func(ctx context.Context, user string) (*github.User, *github.Response, error)
 	handleGetRateLimits func(ctx context.Context) (*github.RateLimits, *github.Response, error)
+}
+
+func (g TestGHClient) getLogger() logrus.Entry {
+	return g.handleGetLogger()
 }
 
 func (g TestGHClient) listIssueEvents(ctx context.Context, owner, repo string, number int, page int) ([]*github.IssueEvent, *github.Response, error) {
@@ -104,7 +115,8 @@ func (g TestGHClient) getRateLimits(ctx context.Context) (*github.RateLimits, *g
 	return g.getRateLimits(ctx)
 }
 
-func getCurrentProjectCardAndCommitIds(g Client, log logrus.Entry, timeout time.Duration, user string, repoName string, issue *github.Issue) (*github.ProjectCard, []string, error) {
+func getCurrentProjectCardAndCommitIds(g Client, timeout time.Duration, user string, repoName string, issue *github.Issue) (*github.ProjectCard, []string, error) {
+	log := g.getLogger()
 	ctx := context.Background()
 	pages := 1
 
@@ -148,9 +160,9 @@ func getCurrentProjectCardAndCommitIds(g Client, log logrus.Entry, timeout time.
 }
 
 // ListIssues returns the list of GitHub issues since the last run of the tool.
-func ListIssues(g Client, log logrus.Entry, timeout time.Duration, user string, repoName string, since time.Time) ([]models.ExtendedGithubIssue, error) {
+func ListIssues(g Client, timeout time.Duration, user string, repoName string, since time.Time) ([]models.ExtendedGithubIssue, error) {
+	log := g.getLogger()
 	ctx := context.Background()
-
 	repo, _, _ := g.getRepository(ctx, user, repoName)
 
 	// Set it so that it will run the loop once, and it'll be updated in the loop.
@@ -178,7 +190,7 @@ func ListIssues(g Client, log logrus.Entry, timeout time.Duration, user string, 
 				var currentProjectCard *github.ProjectCard
 				var commitIds []string
 				if repo.GetHasProjects() {
-					currentProjectCard, commitIds, _ = getCurrentProjectCardAndCommitIds(g, log, timeout, user, repoName, v)
+					currentProjectCard, commitIds, _ = getCurrentProjectCardAndCommitIds(g, timeout, user, repoName, v)
 				}
 
 				issuePage = append(issuePage, models.ExtendedGithubIssue{Issue: *v, ProjectCard: currentProjectCard, CommitIds: commitIds})
@@ -196,8 +208,8 @@ func ListIssues(g Client, log logrus.Entry, timeout time.Duration, user string, 
 
 // ListComments returns the list of all comments on a GitHub issue in
 // ascending order of creation.
-func ListComments(g Client, log logrus.Entry, timeout time.Duration, user string, repoName string, issue github.Issue) ([]*github.IssueComment, error) {
-
+func ListComments(g Client, timeout time.Duration, user string, repoName string, issue github.Issue) ([]*github.IssueComment, error) {
+	log := g.getLogger()
 	ctx := context.Background()
 	c, _, err := request(log, timeout, func() (interface{}, *github.Response, error) {
 		return g.listComments(ctx, user, repoName, issue.GetNumber())

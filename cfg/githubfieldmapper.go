@@ -28,6 +28,27 @@ type JsonFieldMapper struct {
 	Config *Config
 }
 
+type TestFieldMapper struct {
+	HandleMapFields func(issue *models.ExtendedGithubIssue) jira.IssueFields
+	HandleGetFieldValue func(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error)
+	HandleGetFieldIDs func(client jira.Client) (map[FieldKey]string, error)
+}
+
+// Test Field mapper
+
+func (m TestFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.IssueFields {
+	return m.HandleMapFields(issue)
+}
+
+func (m TestFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error) {
+	return m.HandleGetFieldValue(jIssue, fieldKey)
+}
+
+func (m TestFieldMapper) GetFieldIDs(client jira.Client) (map[FieldKey]string, error) {
+	return m.HandleGetFieldIDs(client)
+}
+
+// Default Field Mapper
 func (m DefaultFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error) {
 	switch fieldKey {
 	case GitHubID:
@@ -137,6 +158,7 @@ func (m DefaultFieldMapper) GetFieldIDs(client jira.Client) (map[FieldKey]string
 	return fieldIDs, nil
 }
 
+// Json Field Mapper
 func (m JsonFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error) {
 
 	var result interface{}

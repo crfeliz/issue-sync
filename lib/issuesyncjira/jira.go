@@ -3,6 +3,7 @@ package issuesyncjira
 import (
 	"errors"
 	"fmt"
+	"github.com/Sirupsen/logrus"
 	"github.com/coreos/issue-sync/lib/issuesyncgithub"
 	"io/ioutil"
 	"net/http"
@@ -30,8 +31,7 @@ const maxJQLIssueLength = 100
 // of the body. If an error occurs during reading, that error is
 // instead printed and returned. This function closes the body for
 // further reading.
-func getErrorBody(config cfg.Config, res *jira.Response) error {
-	log := config.GetLogger()
+func getErrorBody(log logrus.Entry, res *jira.Response) error {
 	defer res.Body.Close()
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
@@ -47,7 +47,8 @@ func getErrorBody(config cfg.Config, res *jira.Response) error {
 // as well as swap in other implementations, such as for dry run
 // or test mocking.
 type Client interface {
-	getConfig() cfg.Config
+	getLogger() logrus.Entry
+	getFieldMapper() cfg.FieldMapper
 	searchIssues(jql string) (interface{}, *jira.Response, error)
 	do(method string, url string, body interface{}, out interface{}) (*jira.Response, error)
 	getIssue(key string) (*jira.Issue, *jira.Response, error)
@@ -62,8 +63,9 @@ type Client interface {
 // of the requests against the JIRA REST API. It is the canonical
 // implementation of Client.
 type realJIRAClient struct {
-	config cfg.Config
 	client jira.Client
+	log logrus.Entry
+	fieldMapper cfg.FieldMapper
 }
 
 // dryrunJIRAClient is an implementation of Client which performs all
@@ -71,12 +73,73 @@ type realJIRAClient struct {
 // unsafe requests which may modify server data, instead printing out the
 // actions it is asked to perform without making the request.
 type dryrunJIRAClient struct {
-	config cfg.Config
 	client jira.Client
+	log logrus.Entry
+	fieldMapper cfg.FieldMapper
 }
 
-func (j realJIRAClient) getConfig() cfg.Config {
-	return j.config
+type TestJiraClient struct {
+	handleGetLogger func() logrus.Entry
+	handleGetFieldMapper func() cfg.FieldMapper
+	handleSearchIssues func(jql string) (interface{}, *jira.Response, error)
+	handleDo func(method string, url string, body interface{}, out interface{}) (*jira.Response, error)
+	handleGetIssue func(key string) (*jira.Issue, *jira.Response, error)
+	handleCreateIssue func(issue *jira.Issue) (*jira.Issue, *jira.Response, error)
+	handleUpdateIssue func(issue *jira.Issue) (*jira.Issue, *jira.Response, error)
+	handleAddComment func(id string, jComment *jira.Comment, jIssue *jira.Issue, ghComment *github.IssueComment, ghUser *github.User) (*jira.Comment, *jira.Response, error)
+	handleGetTransitions func(issue jira.Issue) ([]jira.Transition, *jira.Response, error)
+	handleApplyTransition func(issue jira.Issue, transition jira.Transition) (*jira.Response, error)
+}
+
+// Test Client
+
+func (j TestJiraClient) getLogger() logrus.Entry {
+	return j.handleGetLogger()
+}
+
+func (j TestJiraClient) getFieldMapper() cfg.FieldMapper {
+	return j.handleGetFieldMapper()
+}
+
+func (j TestJiraClient) getTransitions(issue jira.Issue) ([]jira.Transition, *jira.Response, error) {
+	return j.handleGetTransitions(issue)
+}
+
+func (j TestJiraClient) applyTransition(issue jira.Issue, transition jira.Transition) (*jira.Response, error) {
+	return j.handleApplyTransition(issue, transition)
+}
+
+func (j TestJiraClient) searchIssues(jql string) (interface{}, *jira.Response, error) {
+	return j.handleSearchIssues(jql)
+}
+
+func (j TestJiraClient) getIssue(key string) (*jira.Issue, *jira.Response, error) {
+	return j.handleGetIssue(key)
+}
+
+func (j TestJiraClient) createIssue(issue *jira.Issue) (*jira.Issue, *jira.Response, error) {
+	return j.handleCreateIssue(issue)
+}
+
+func (j TestJiraClient) updateIssue(issue *jira.Issue) (*jira.Issue, *jira.Response, error) {
+	return j.handleUpdateIssue(issue)
+}
+
+func (j TestJiraClient) addComment(id string, jComment *jira.Comment, jIssue *jira.Issue, ghComment *github.IssueComment, ghUser *github.User) (*jira.Comment, *jira.Response, error) {
+	return j.handleAddComment(id, jComment, jIssue, ghComment, ghUser)
+}
+
+func (j TestJiraClient) do(method string, url string, body interface{}, out interface{}) (*jira.Response, error) {
+	return j.handleDo(method, url, body, out)
+}
+
+// Real Client
+func (j realJIRAClient) getLogger() logrus.Entry {
+	return j.log
+}
+
+func (j realJIRAClient) getFieldMapper() cfg.FieldMapper {
+	return j.fieldMapper
 }
 
 func (j realJIRAClient) getTransitions(issue jira.Issue) ([]jira.Transition, *jira.Response, error) {
@@ -113,13 +176,20 @@ func (j realJIRAClient) do(method string, url string, body interface{}, out inte
 }
 
 // DRY RUN CLIENT
+func (j dryrunJIRAClient) getLogger() logrus.Entry {
+	return j.log
+}
+
+func (j dryrunJIRAClient) getFieldMapper() cfg.FieldMapper {
+	return j.fieldMapper
+}
 
 func (j dryrunJIRAClient) getTransitions(issue jira.Issue) ([]jira.Transition, *jira.Response, error) {
 	return j.client.Issue.GetTransitions(issue.ID)
 }
 
 func (j dryrunJIRAClient) applyTransition(issue jira.Issue, transition jira.Transition) (*jira.Response, error) {
-	log := j.config.GetLogger()
+	log := j.log
 	log.Info("")
 	log.Info("Applying Transition:")
 	log.Infof("  Jira Issue ID: %s", issue.ID)
@@ -128,10 +198,6 @@ func (j dryrunJIRAClient) applyTransition(issue jira.Issue, transition jira.Tran
 	log.Infof("  New Satus: %s", transition.To.Name)
 	log.Info("")
 	return nil, nil
-}
-
-func (j dryrunJIRAClient) getConfig() cfg.Config {
-	return j.config
 }
 
 func (j dryrunJIRAClient) searchIssues(jql string) (interface{}, *jira.Response, error) {
@@ -143,7 +209,7 @@ func (j dryrunJIRAClient) getIssue(key string) (*jira.Issue, *jira.Response, err
 }
 
 func (j dryrunJIRAClient) createIssue(issue *jira.Issue) (*jira.Issue, *jira.Response, error) {
-	log := j.config.GetLogger()
+	log := j.log
 
 	fields := issue.Fields
 
@@ -151,18 +217,18 @@ func (j dryrunJIRAClient) createIssue(issue *jira.Issue) (*jira.Issue, *jira.Res
 	log.Info("Create new JIRA issue:")
 	log.Infof("  Summary: %s", fields.Summary)
 	log.Infof("  Description: %s", truncate(fields.Description, 50))
-	log.Infof("  GitHub ID: %d", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubID))(""))
-	log.Infof("  GitHub Number: %d", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubNumber)))
-	log.Infof("  GitHub Labels: %s", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubLabels)))
-	log.Infof("  GitHub Status: %s", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubStatus)))
-	log.Infof("  GitHub Reporter: %s", utils.GetOrElse(j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubReporter)))
+	log.Infof("  GitHub ID: %d", utils.GetOrElse(j.fieldMapper.GetFieldValue(issue, cfg.GitHubID))(""))
+	log.Infof("  GitHub Number: %d", utils.GetOrElse(j.fieldMapper.GetFieldValue(issue, cfg.GitHubNumber))(-1))
+	log.Infof("  GitHub Labels: %s", utils.GetOrElse(j.fieldMapper.GetFieldValue(issue, cfg.GitHubLabels))(""))
+	log.Infof("  GitHub Status: %s", utils.GetOrElse(j.fieldMapper.GetFieldValue(issue, cfg.GitHubStatus))(""))
+	log.Infof("  GitHub Reporter: %s", utils.GetOrElse(j.fieldMapper.GetFieldValue(issue, cfg.GitHubReporter))(""))
 	log.Info("")
 
 	return issue, nil, nil
 }
 
 func (j dryrunJIRAClient) updateIssue(issue *jira.Issue) (*jira.Issue, *jira.Response, error) {
-	log := j.config.GetLogger()
+	log := j.log
 
 	fields := issue.Fields
 
@@ -170,10 +236,10 @@ func (j dryrunJIRAClient) updateIssue(issue *jira.Issue) (*jira.Issue, *jira.Res
 	log.Infof("Update JIRA issue %s:", issue.Key)
 	log.Infof("  Summary: %s", fields.Summary)
 	log.Infof("  Description: %s", truncate(fields.Description, 50))
-	if labels, err := j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubLabels); err == nil {
+	if labels, err := j.fieldMapper.GetFieldValue(issue, cfg.GitHubLabels); err == nil {
 		log.Infof("  Labels: %s", labels)
 	}
-	if state, err := j.config.GetFieldMapper().GetFieldValue(issue, cfg.GitHubStatus); err == nil {
+	if state, err := j.fieldMapper.GetFieldValue(issue, cfg.GitHubStatus); err == nil {
 		log.Infof("  State: %s", state)
 	}
 	log.Info("")
@@ -182,7 +248,7 @@ func (j dryrunJIRAClient) updateIssue(issue *jira.Issue) (*jira.Issue, *jira.Res
 }
 
 func (j dryrunJIRAClient) addComment(id string, jComment *jira.Comment, jIssue *jira.Issue, ghComment *github.IssueComment, ghUser *github.User) (*jira.Comment, *jira.Response, error) {
-	log := j.config.GetLogger()
+	log := j.log
 
 	body := fmt.Sprintf("Comment (ID %d) from GitHub user %s", ghComment.GetID(), ghUser.GetLogin())
 	if ghUser.GetName() != "" {
@@ -231,8 +297,7 @@ const retryBackoffRoundRatio = time.Millisecond / time.Nanosecond
 // returns the expected value and the JIRA API response, as well as a nil
 // error. If it continues to fail until a maximum time is reached, it returns
 // a nil result as well as the returned HTTP response and a timeout error.
-func request(config cfg.Config, f func() (interface{}, *jira.Response, error)) (interface{}, *jira.Response, error) {
-	log := config.GetLogger()
+func request(log logrus.Entry, timeout time.Duration, f func() (interface{}, *jira.Response, error)) (interface{}, *jira.Response, error) {
 
 	var ret interface{}
 	var res *jira.Response
@@ -244,7 +309,7 @@ func request(config cfg.Config, f func() (interface{}, *jira.Response, error)) (
 	}
 
 	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = config.GetTimeout()
+	b.MaxElapsedTime = timeout
 
 	backoffErr := backoff.RetryNotify(op, b, func(err error, duration time.Duration) {
 		// Round to a whole number of milliseconds
@@ -291,18 +356,17 @@ func NewClient(config *cfg.Config) (Client, error) {
 	err = config.LoadJIRAConfig(*client)
 
 	if err != nil {
-		log.Errorf("Error loading config", err)
+		log.Error("Error loading config", err)
 		return dryrunJIRAClient{}, err
 	}
 
 	if config.IsDryRun() {
 		j = dryrunJIRAClient{
-			config: *config,
+			log: config.GetLogger(),
 			client: *client,
 		}
 	} else {
 		j = realJIRAClient{
-			config: *config,
 			client: *client,
 		}
 	}
@@ -311,7 +375,7 @@ func NewClient(config *cfg.Config) (Client, error) {
 }
 
 func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) error {
-	log := j.getConfig().GetLogger()
+	log := j.getLogger()
 
 
 	var currentStatusName string
@@ -331,7 +395,7 @@ func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) e
 
 	if err != nil {
 		log.Errorf("Error retrieving JIRA transitions: %v", err)
-		return getErrorBody(j.getConfig(), res)
+		return getErrorBody(j.getLogger(), res)
 	}
 
 	for _, v := range transitions {
@@ -340,7 +404,7 @@ func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) e
 			_, err = j.applyTransition(issue, v)
 			if err != nil {
 				log.Errorf("Error applying JIRA transitions: %v", err)
-				return getErrorBody(j.getConfig(), res)
+				return getErrorBody(j.getLogger(), res)
 			} else {
 				return nil
 			}
@@ -353,31 +417,34 @@ func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) e
 // ListIssues returns a list of JIRA issues on the configured project which
 // have GitHub IDs in the provided list. `ids` should be a comma-separated
 // list of GitHub IDs.
-func ListIssues(j Client, ghIssueIds []int64) ([]jira.Issue, error) {
-	log := j.getConfig().GetLogger()
+func ListIssues(j Client, timeout time.Duration, jiraProjectKey string,  githubIdFieldId string,  ghIssueIds []int64) ([]jira.Issue, error) {
+	log := j.getLogger()
 
 	ghIssueIdStrs := make([]string, len(ghIssueIds))
 	for i, v := range ghIssueIds {
 		ghIssueIdStrs[i] = fmt.Sprint(v)
 	}
 
+	_, isDefaultFieldMapper := j.getFieldMapper().(cfg.DefaultFieldMapper)
+	filterWithJql := isDefaultFieldMapper && len(ghIssueIds) < maxJQLIssueLength
+
 	var jql string
 	// If the list of IDs is too long, we get a 414 Request-URI Too Large, so in that case,
 	// we'll need to do the filtering ourselves.
-	if !j.getConfig().IsUsingGitHubIssueDataField() && len(ghIssueIds) < maxJQLIssueLength {
+	if filterWithJql {
 		jql = fmt.Sprintf("project='%s' AND cf[%s] in (%s)",
-			j.getConfig().GetProjectKey(), j.getConfig().GetFieldID(cfg.GitHubID), strings.Join(ghIssueIdStrs, ","))
+			jiraProjectKey, githubIdFieldId, strings.Join(ghIssueIdStrs, ","))
 	} else {
-		jql = fmt.Sprintf("project='%s'", j.getConfig().GetProjectKey())
+		jql = fmt.Sprintf("project='%s'", jiraProjectKey)
 	}
 
-	ji, res, err := request(j.getConfig(), func() (interface{}, *jira.Response, error) {
+	ji, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
 		return j.searchIssues(jql)
 	})
 
 	if err != nil {
 		log.Errorf("Error retrieving JIRA issues: %v", err)
-		return nil, getErrorBody(j.getConfig(), res)
+		return nil, getErrorBody(j.getLogger(), res)
 	}
 
 	var jiraIssues []jira.Issue
@@ -403,13 +470,13 @@ func ListIssues(j Client, ghIssueIds []int64) ([]jira.Issue, error) {
 	}
 
 	var issues []jira.Issue
-	if !j.getConfig().IsUsingGitHubIssueDataField() && len(ghIssueIds) < maxJQLIssueLength {
+	if filterWithJql {
 		// The issues were already filtered by our JQL, so use as is
 		issues = jiraIssues
 	} else {
 		// Filter only issues which have a defined GitHub ID in the list of IDs
 		for _, v := range jiraIssues {
-			if id, err := j.getConfig().GetFieldMapper().GetFieldValue(&v, cfg.GitHubID); err == nil {
+			if id, err := j.getFieldMapper().GetFieldValue(&v, cfg.GitHubID); err == nil {
 				for _, idOpt := range ghIssueIds {
 					if id.(int64) == int64(idOpt) {
 						issues = append(issues, v)
@@ -424,15 +491,15 @@ func ListIssues(j Client, ghIssueIds []int64) ([]jira.Issue, error) {
 
 // GetIssue returns a single JIRA issue within the configured project
 // according to the issue key (e.g. "PROJ-13").
-func GetIssue(j Client, key string) (jira.Issue, error) {
-	log := j.getConfig().GetLogger()
+func GetIssue(j Client, timeout time.Duration, key string) (jira.Issue, error) {
+	log := j.getLogger()
 
-	i, res, err := request(j.getConfig(), func() (interface{}, *jira.Response, error) {
+	i, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
 		return j.getIssue(key)
 	})
 	if err != nil {
 		log.Errorf("Error retrieving JIRA issue: %v", err)
-		return jira.Issue{}, getErrorBody(j.getConfig(), res)
+		return jira.Issue{}, getErrorBody(j.getLogger(), res)
 	}
 	issue, ok := i.(*jira.Issue)
 	if !ok {
@@ -446,15 +513,15 @@ func GetIssue(j Client, key string) (jira.Issue, error) {
 // CreateIssue creates a new JIRA issue according to the fields provided in
 // the provided issue object. It returns the created issue, with all the
 // fields provided (including e.g. ID and Key).
-func CreateIssue(j Client, issue jira.Issue) (jira.Issue, error) {
-	log := j.getConfig().GetLogger()
+func CreateIssue(j Client, timeout time.Duration, issue jira.Issue) (jira.Issue, error) {
+	log := j.getLogger()
 
-	i, res, err := request(j.getConfig(), func() (interface{}, *jira.Response, error) {
+	i, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
 		return j.createIssue(&issue)
 	})
 	if err != nil {
 		log.Errorf("Error creating JIRA issue: %v", err)
-		return jira.Issue{}, getErrorBody(j.getConfig(), res)
+		return jira.Issue{}, getErrorBody(j.getLogger(), res)
 	}
 	is, ok := i.(*jira.Issue)
 	if !ok {
@@ -468,15 +535,15 @@ func CreateIssue(j Client, issue jira.Issue) (jira.Issue, error) {
 // UpdateIssue updates a given issue (identified by the Key field of the provided
 // issue object) with the fields on the provided issue. It returns the updated
 // issue as it exists on JIRA.
-func UpdateIssue(j Client, issue jira.Issue) (jira.Issue, error) {
-	log := j.getConfig().GetLogger()
+func UpdateIssue(j Client, timeout time.Duration, issue jira.Issue) (jira.Issue, error) {
+	log := j.getLogger()
 
-	i, res, err := request(j.getConfig(), func() (interface{}, *jira.Response, error) {
+	i, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
 		return j.updateIssue(&issue)
 	})
 	if err != nil {
 		log.Errorf("Error updating JIRA issue %s: %v", issue.Key, err)
-		return jira.Issue{}, getErrorBody(j.getConfig(), res)
+		return jira.Issue{}, getErrorBody(j.getLogger(), res)
 	}
 	is, ok := i.(*jira.Issue)
 	if !ok {
@@ -493,11 +560,10 @@ const maxBodyLength = 1 << 15
 
 // CreateComment adds a comment to the provided JIRA issue using the fields from
 // the provided GitHub comment. It then returns the created comment.
-func CreateComment(j Client, jIssue jira.Issue, ghComment github.IssueComment, g issuesyncgithub.Client) (jira.Comment, error) {
-	config := j.getConfig()
-	log := config.GetLogger()
+func CreateComment(j Client, timeout time.Duration, jIssue jira.Issue, ghComment github.IssueComment, g issuesyncgithub.Client) (jira.Comment, error) {
+	log := j.getLogger()
 
-	user, err := issuesyncgithub.GetUser(g, log, config.GetTimeout(), ghComment.User.GetLogin())
+	user, err := issuesyncgithub.GetUser(g, log, timeout, ghComment.User.GetLogin())
 	if err != nil {
 		return jira.Comment{}, err
 	}
@@ -522,17 +588,17 @@ func CreateComment(j Client, jIssue jira.Issue, ghComment github.IssueComment, g
 		Body: body,
 	}
 
-	ghUser, err := issuesyncgithub.GetUser(g, log, config.GetTimeout(), ghComment.User.GetLogin())
+	ghUser, err := issuesyncgithub.GetUser(g, log, timeout, ghComment.User.GetLogin())
 	if err != nil {
 		return jira.Comment{}, err
 	}
 
-	com, res, err := request(j.getConfig(), func() (interface{}, *jira.Response, error) {
+	com, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
 		return j.addComment(jIssue.ID, &jComment, &jIssue, &ghComment, &ghUser)
 	})
 	if err != nil {
 		log.Errorf("Error creating JIRA ghComment on jIssue %s. Error: %v", jIssue.Key, err)
-		return jira.Comment{}, getErrorBody(j.getConfig(), res)
+		return jira.Comment{}, getErrorBody(log, res)
 	}
 	co, ok := com.(*jira.Comment)
 	if !ok {
@@ -545,11 +611,10 @@ func CreateComment(j Client, jIssue jira.Issue, ghComment github.IssueComment, g
 // UpdateComment updates a comment (identified by the `id` parameter) on a given
 // JIRA with a new body from the fields of the given GitHub comment. It returns
 // the updated comment.
-func UpdateComment(j Client, issue jira.Issue, id string, comment github.IssueComment, g issuesyncgithub.Client) (jira.Comment, error) {
-	config := j.getConfig()
-	log := config.GetLogger()
+func UpdateComment(j Client, timeout time.Duration, issue jira.Issue, id string, comment github.IssueComment, g issuesyncgithub.Client) (jira.Comment, error) {
+	log := j.getLogger()
 
-	user, err := issuesyncgithub.GetUser(g, log, config.GetTimeout(), comment.User.GetLogin())
+	user, err := issuesyncgithub.GetUser(g, log, timeout, comment.User.GetLogin())
 	if err != nil {
 		return jira.Comment{}, err
 	}
@@ -585,14 +650,14 @@ func UpdateComment(j Client, issue jira.Issue, id string, comment github.IssueCo
 		return jira.Comment{}, err
 	}
 
-	com, res, err := request(j.getConfig(), func() (interface{}, *jira.Response, error) {
+	com, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
 		url := fmt.Sprintf("rest/api/2/issue/%s/comment/%s", issue.Key, id)
 		res, err := j.do("PUT", url, requestBody, nil)
 		return jComment, res, err
 	})
 	if err != nil {
 		log.Errorf("Error updating comment: %v", err)
-		return jira.Comment{}, getErrorBody(j.getConfig(), res)
+		return jira.Comment{}, getErrorBody(j.getLogger(), res)
 	}
 	co, ok := com.(*jira.Comment)
 	if !ok {
@@ -619,6 +684,10 @@ func truncate(s string, length int) string {
 		return s
 	}
 	return fmt.Sprintf("%s...", s[0:length])
+}
+
+func NewTestClient() TestJiraClient {
+	return TestJiraClient {}
 }
 
 

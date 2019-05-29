@@ -111,7 +111,7 @@ func (c *Config) LoadJIRAConfig(client jira.Client) error {
 	c.project = *proj
 
 
-	if c.IsUsingGitHubIssueDataField() {
+	if c.cmdConfig.GetString("github-to-jira-field-mapper") == "json-field-mapper" {
 		c.fieldMapper = JsonFieldMapper{
 			Config: c,
 		}
@@ -191,10 +191,6 @@ func (c Config) GetFieldID(key FieldKey) string {
 		return ""
 	}
 	return v
-}
-
-func (c Config) IsUsingGitHubIssueDataField() bool {
-	return c.cmdConfig.GetString("github-to-jira-field-mapper") == "json-field-mapper"
 }
 
 // GetCompleteFieldKey returns customfield_XXXXX, where XXXXX is the custom field ID (see GetFieldID).

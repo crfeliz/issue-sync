@@ -20,7 +20,7 @@ func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClien
 
 	log.Debug("Collecting issues")
 
-	ghIssues, err := issuesyncgithub.ListIssues(ghClient, log, config.GetTimeout(), user, repoName, config.GetSinceParam())
+	ghIssues, err := issuesyncgithub.ListIssues(ghClient, config.GetTimeout(), user, repoName, config.GetSinceParam())
 	if err != nil {
 		return err
 	}
@@ -35,7 +35,7 @@ func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClien
 		ids[i] = v.GetID()
 	}
 
-	jiraIssues, err := issuesyncjira.ListIssues(jiraClient, ids)
+	jiraIssues, err := issuesyncjira.ListIssues(jiraClient, config.GetTimeout(), config.GetProjectKey(), config.GetFieldID(cfg.GitHubID), ids)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue j
 			}
 		}
 
-		issue, err = issuesyncjira.UpdateIssue(jClient, issue)
+		issue, err = issuesyncjira.UpdateIssue(jClient, config.GetTimeout(), issue)
 		if err != nil {
 			return err
 		}
@@ -189,7 +189,7 @@ func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue j
 		log.Debugf("JIRA issue %s is already up to date!", jIssue.Key)
 	}
 
-	issue, err := issuesyncjira.GetIssue(jClient, jIssue.Key)
+	issue, err := issuesyncjira.GetIssue(jClient, config.GetTimeout(), jIssue.Key)
 	if err != nil {
 		log.Debugf("Failed to retrieve JIRA issue %s!", jIssue.Key)
 		return err
@@ -215,7 +215,7 @@ func CreateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, ghClient
 		Fields: &fields,
 	}
 
-	jIssue, err := issuesyncjira.CreateIssue(jClient, jIssue)
+	jIssue, err := issuesyncjira.CreateIssue(jClient, config.GetTimeout(), jIssue)
 	if err != nil {
 		return err
 	}
@@ -227,7 +227,7 @@ func CreateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, ghClient
 		}
 	}
 
-	jIssue, err = issuesyncjira.GetIssue(jClient, jIssue.Key)
+	jIssue, err = issuesyncjira.GetIssue(jClient, config.GetTimeout(), jIssue.Key)
 	if err != nil {
 		return err
 	}
