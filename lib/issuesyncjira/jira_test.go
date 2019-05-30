@@ -1,6 +1,7 @@
 package issuesyncjira
 
 import (
+	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/andygrunwald/go-jira"
 	"github.com/coreos/issue-sync/cfg"
@@ -42,6 +43,31 @@ func TestListIssues(t *testing.T) {
 
 
 	if len(issues) != 3 {
-		t.Fatalf("Expected len(issues) = 9; Got len(issues) = %d", len(issues))
+		t.Fatalf("Expected len(issues) = 3; Got len(issues) = %d", len(issues))
+	}
+}
+
+func TestTryApplyTransitionWithName(t *testing.T) {
+	testProjectKey := "TPK"
+	issue := jira.Issue{Fields: &jira.IssueFields{Project:jira.Project{Key: testProjectKey}}}
+	client := NewTestClient()
+	log := *cfg.NewLogger("test", "debug")
+
+	client.handleGetLogger = func() logrus.Entry {
+		return log
+	}
+
+	client.handleGetTransitions = func(issue jira.Issue) (transitions []jira.Transition, response *jira.Response, e error) {
+		transitions = make([]jira.Transition, 3)
+		for i := 0; i < len(transitions); i++ {
+			transitions[i] = jira.Transition{Name:fmt.Sprintf("Transition_%d", i)}
+		}
+		return transitions, &jira.Response{}, nil
+	}
+
+	err := TryApplyTransitionWithStatusName(client, issue, "Transition_2")
+
+	if err != nil {
+		t.Fatalf("TryApplyTransitionWithStatusName failed with error: %s", err.Error())
 	}
 }

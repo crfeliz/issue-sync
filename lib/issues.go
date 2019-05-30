@@ -173,7 +173,7 @@ func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue j
 		var err error
 
 		if ghIssue.ProjectCard != nil {
-			err = issuesyncjira.TryApplyTransitionWithName(jClient, jIssue, ghIssue.ProjectCard.GetColumnName())
+			err = issuesyncjira.TryApplyTransitionWithStatusName(jClient, jIssue, ghIssue.ProjectCard.GetColumnName())
 			if err != nil {
 				return err
 			}
@@ -221,7 +221,7 @@ func CreateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, ghClient
 	}
 
 	if ghIssue.ProjectCard != nil {
-		err = issuesyncjira.TryApplyTransitionWithName(jClient, jIssue, ghIssue.ProjectCard.GetColumnName())
+		err = issuesyncjira.TryApplyTransitionWithStatusName(jClient, jIssue, ghIssue.ProjectCard.GetColumnName())
 		if err != nil {
 			return err
 		}

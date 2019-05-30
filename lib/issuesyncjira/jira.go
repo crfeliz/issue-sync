@@ -374,7 +374,7 @@ func NewClient(config *cfg.Config) (Client, error) {
 	return j, nil
 }
 
-func TryApplyTransitionWithName(j Client, issue jira.Issue, statusName string) error {
+func TryApplyTransitionWithStatusName(j Client, issue jira.Issue, statusName string) error {
 	log := j.getLogger()
 
 
