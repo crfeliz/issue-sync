@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/andygrunwald/go-jira"
-	"github.com/cenkalti/backoff"
 	"github.com/coreos/issue-sync/cfg"
 	"github.com/coreos/issue-sync/lib/utils"
 	"github.com/google/go-github/github"
@@ -32,10 +31,16 @@ const maxJQLIssueLength = 100
 // instead printed and returned. This function closes the body for
 // further reading.
 func getErrorBody(log logrus.Entry, res *jira.Response) error {
-	defer res.Body.Close()
+	defer func() {
+		err := res.Body.Close()
+		if err != nil {
+			log.Error(err)
+		}
+	}()
+
 	body, err := ioutil.ReadAll(res.Body)
 	if err != nil {
-		log.Errorf("Error occured trying to read error body: %v", err)
+		log.Errorf("Error occurred trying to read error body: %v", err)
 		return err
 	}
 	log.Debugf("Error body: %s", body)
@@ -284,42 +289,11 @@ func (j dryrunJIRAClient) do(method string, url string, body interface{}, out in
 	if disallowedMethods[method] {
 		return nil, nil
 	}
-	req, _ := j.client.NewRequest(method, url, nil)
-	return j.client.Do(req, out)
-}
-
-
-
-const retryBackoffRoundRatio = time.Millisecond / time.Nanosecond
-
-// request takes an API function from the JIRA library
-// and calls it with exponential backoff. If the function succeeds, it
-// returns the expected value and the JIRA API response, as well as a nil
-// error. If it continues to fail until a maximum time is reached, it returns
-// a nil result as well as the returned HTTP response and a timeout error.
-func request(log logrus.Entry, timeout time.Duration, f func() (interface{}, *jira.Response, error)) (interface{}, *jira.Response, error) {
-
-	var ret interface{}
-	var res *jira.Response
-
-	op := func() error {
-		var err error
-		ret, res, err = f()
-		return err
+	req, err := j.client.NewRequest(method, url, nil)
+	if err != nil {
+		return nil, err
 	}
-
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = timeout
-
-	backoffErr := backoff.RetryNotify(op, b, func(err error, duration time.Duration) {
-		// Round to a whole number of milliseconds
-		duration /= retryBackoffRoundRatio // Convert nanoseconds to milliseconds
-		duration *= retryBackoffRoundRatio // Convert back so it appears correct
-
-		log.Errorf("Error performing operation; retrying in %v: %v", duration, err)
-	})
-
-	return ret, res, backoffErr
+	return j.client.Do(req, out)
 }
 
 // NewClient creates a new Client and configures it with
@@ -329,26 +303,27 @@ func request(log logrus.Entry, timeout time.Duration, f func() (interface{}, *ji
 func NewClient(config *cfg.Config) (Client, error) {
 	log := config.GetLogger()
 
-	var oauth *http.Client
+	var httpClient *http.Client
 	var err error
-	if !config.IsBasicAuth() {
-		oauth, err = newJIRAHTTPClient(*config)
+
+	if config.IsBasicAuth() {
+		transport := jira.BasicAuthTransport{
+			Username: config.GetConfigString("jira-user"),
+			Password: config.GetConfigString("jira-pass"),
+		}
+		httpClient = transport.Client()
+	} else {
+		httpClient, err = newJIRAHTTPClient(*config)
 		if err != nil {
 			log.Errorf("Error getting OAuth config: %v", err)
 			return dryrunJIRAClient{}, err
 		}
 	}
 
-	var j Client
-
-	client, err := jira.NewClient(oauth, config.GetConfigString("jira-uri"))
+	client, err := jira.NewClient(httpClient, config.GetConfigString("jira-uri"))
 	if err != nil {
 		log.Errorf("Error initializing JIRA clients; check your base URI. Error: %v", err)
 		return dryrunJIRAClient{}, err
-	}
-
-	if config.IsBasicAuth() {
-		client.Authentication.SetBasicAuth(config.GetConfigString("jira-user"), config.GetConfigString("jira-pass"))
 	}
 
 	log.Debug("JIRA clients initialized")
@@ -359,6 +334,8 @@ func NewClient(config *cfg.Config) (Client, error) {
 		log.Error("Error loading config", err)
 		return dryrunJIRAClient{}, err
 	}
+
+	var j Client
 
 	if config.IsDryRun() {
 		j = dryrunJIRAClient{
@@ -438,13 +415,13 @@ func ListIssues(j Client, timeout time.Duration, jiraProjectKey string,  githubI
 		jql = fmt.Sprintf("project='%s'", jiraProjectKey)
 	}
 
-	ji, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
+	ji, res, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 		return j.searchIssues(jql)
 	})
 
 	if err != nil {
 		log.Errorf("Error retrieving JIRA issues: %v", err)
-		return nil, getErrorBody(j.getLogger(), res)
+		return nil, getErrorBody(j.getLogger(), res.(*jira.Response))
 	}
 
 	var jiraIssues []jira.Issue
@@ -494,12 +471,12 @@ func ListIssues(j Client, timeout time.Duration, jiraProjectKey string,  githubI
 func GetIssue(j Client, timeout time.Duration, key string) (jira.Issue, error) {
 	log := j.getLogger()
 
-	i, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
+	i, res, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 		return j.getIssue(key)
 	})
 	if err != nil {
 		log.Errorf("Error retrieving JIRA issue: %v", err)
-		return jira.Issue{}, getErrorBody(j.getLogger(), res)
+		return jira.Issue{}, getErrorBody(j.getLogger(), res.(*jira.Response))
 	}
 	issue, ok := i.(*jira.Issue)
 	if !ok {
@@ -516,12 +493,12 @@ func GetIssue(j Client, timeout time.Duration, key string) (jira.Issue, error) {
 func CreateIssue(j Client, timeout time.Duration, issue jira.Issue) (jira.Issue, error) {
 	log := j.getLogger()
 
-	i, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
+	i, res, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 		return j.createIssue(&issue)
 	})
 	if err != nil {
 		log.Errorf("Error creating JIRA issue: %v", err)
-		return jira.Issue{}, getErrorBody(j.getLogger(), res)
+		return jira.Issue{}, getErrorBody(j.getLogger(), res.(*jira.Response))
 	}
 	is, ok := i.(*jira.Issue)
 	if !ok {
@@ -538,12 +515,12 @@ func CreateIssue(j Client, timeout time.Duration, issue jira.Issue) (jira.Issue,
 func UpdateIssue(j Client, timeout time.Duration, issue jira.Issue) (jira.Issue, error) {
 	log := j.getLogger()
 
-	i, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
+	i, res, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 		return j.updateIssue(&issue)
 	})
 	if err != nil {
 		log.Errorf("Error updating JIRA issue %s: %v", issue.Key, err)
-		return jira.Issue{}, getErrorBody(j.getLogger(), res)
+		return jira.Issue{}, getErrorBody(j.getLogger(), res.(*jira.Response))
 	}
 	is, ok := i.(*jira.Issue)
 	if !ok {
@@ -593,12 +570,12 @@ func CreateComment(j Client, timeout time.Duration, jIssue jira.Issue, ghComment
 		return jira.Comment{}, err
 	}
 
-	com, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
+	com, res, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 		return j.addComment(jIssue.ID, &jComment, &jIssue, &ghComment, &ghUser)
 	})
 	if err != nil {
 		log.Errorf("Error creating JIRA ghComment on jIssue %s. Error: %v", jIssue.Key, err)
-		return jira.Comment{}, getErrorBody(log, res)
+		return jira.Comment{}, getErrorBody(log, res.(*jira.Response))
 	}
 	co, ok := com.(*jira.Comment)
 	if !ok {
@@ -645,24 +622,19 @@ func UpdateComment(j Client, timeout time.Duration, issue jira.Issue, id string,
 
 	jComment := new(jira.Comment)
 
-	if err != nil {
-		log.Errorf("Error creating comment update request: %s", err)
-		return jira.Comment{}, err
-	}
-
-	com, res, err := request(log, timeout, func() (interface{}, *jira.Response, error) {
+	com, res, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 		url := fmt.Sprintf("rest/api/2/issue/%s/comment/%s", issue.Key, id)
 		res, err := j.do("PUT", url, requestBody, nil)
 		return jComment, res, err
 	})
 	if err != nil {
-		log.Errorf("Error updating comment: %v", err)
-		return jira.Comment{}, getErrorBody(j.getLogger(), res)
+		log.Errorf("error updating comment: %v", err)
+		return jira.Comment{}, getErrorBody(j.getLogger(), res.(*jira.Response))
 	}
 	co, ok := com.(*jira.Comment)
 	if !ok {
-		log.Errorf("Update JIRA comment did not return comment! Got: %v", com)
-		return jira.Comment{}, fmt.Errorf("Update JIRA comment failed: expected *jira.Comment; got %T", com)
+		log.Errorf("update JIRA comment did not return comment! Got: %v", com)
+		return jira.Comment{}, fmt.Errorf("update JIRA comment failed: expected *jira.Comment; got %T", com)
 	}
 	return *co, nil
 }

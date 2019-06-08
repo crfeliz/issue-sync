@@ -11,7 +11,7 @@ import (
 )
 
 type FieldMapper interface {
-	MapFields(issue *models.ExtendedGithubIssue) jira.IssueFields
+	MapFields(issue *models.ExtendedGithubIssue) (jira.IssueFields, error)
 
 	GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error)
 
@@ -29,14 +29,14 @@ type JsonFieldMapper struct {
 }
 
 type TestFieldMapper struct {
-	HandleMapFields func(issue *models.ExtendedGithubIssue) jira.IssueFields
+	HandleMapFields func(issue *models.ExtendedGithubIssue) (jira.IssueFields, error)
 	HandleGetFieldValue func(jIssue *jira.Issue, fieldKey FieldKey) (interface{}, error)
 	HandleGetFieldIDs func(client jira.Client) (map[FieldKey]string, error)
 }
 
 // Test Field mapper
 
-func (m TestFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.IssueFields {
+func (m TestFieldMapper) MapFields(issue *models.ExtendedGithubIssue) (jira.IssueFields, error) {
 	return m.HandleMapFields(issue)
 }
 
@@ -58,16 +58,16 @@ func (m DefaultFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey)
 	default:
 		result, exists := jIssue.Fields.Unknowns.Value(m.Config.GetCompleteFieldKey(fieldKey))
 		if !exists {
-			return nil, errors.New("Field not found")
+			return nil, errors.New("field not found")
 		}
 		return result, nil
 	}
 }
 
-func (m DefaultFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.IssueFields {
+func (m DefaultFieldMapper) MapFields(issue *models.ExtendedGithubIssue) (jira.IssueFields, error) {
 	fields := jira.IssueFields{
 		Type: jira.IssueType{
-			Name: "Task", // TODO: Determine issue type
+			Name: "Task", // TODO: Decide on issue type
 		},
 		Project:     m.Config.GetProject(),
 		Summary:     issue.GetTitle(),
@@ -88,11 +88,13 @@ func (m DefaultFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.Is
 
 	fields.Unknowns[m.Config.GetCompleteFieldKey(LastISUpdate)] = time.Now().Format(DateFormat)
 
-	return fields
+	return fields, nil
 }
 
 func (m DefaultFieldMapper) GetFieldIDs(client jira.Client) (map[FieldKey]string, error) {
-	m.Config.log.Debug("Collecting field IDs.")
+	log := m.Config.log
+	log.Debug("Collecting field IDs.")
+
 	req, err := client.NewRequest("GET", "/rest/api/2/field", nil)
 	if err != nil {
 		return map[FieldKey]string{}, err
@@ -153,7 +155,7 @@ func (m DefaultFieldMapper) GetFieldIDs(client jira.Client) (map[FieldKey]string
 		return fieldIDs, errors.New("could not find ID of 'Last Issue-Sync Update' custom field; check that it is named correctly")
 	}
 
-	m.Config.log.Debug("All fields have been checked.")
+	log.Debug("All fields have been checked.")
 
 	return fieldIDs, nil
 }
@@ -196,7 +198,7 @@ func (m JsonFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey) (i
 	return result, nil
 }
 
-func (m JsonFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.IssueFields {
+func (m JsonFieldMapper) MapFields(issue *models.ExtendedGithubIssue) (jira.IssueFields, error) {
 	fields := jira.IssueFields{
 		Type: jira.IssueType{
 			Name: "Task", // TODO: Determine issue type
@@ -222,14 +224,18 @@ func (m JsonFieldMapper) MapFields(issue *models.ExtendedGithubIssue) jira.Issue
 		"lastIssueSyncUpdate": time.Now().Format(DateFormat),
 	}
 
-	j, _ := json.Marshal(data)
+	j, err := json.Marshal(data)
+	if err != nil {
+		return fields, err
+	}
 	fields.Unknowns[m.Config.GetCompleteFieldKey(GitHubIssueData)] = string(j)
 
-	return fields
+	return fields, nil
 }
 
 func (m JsonFieldMapper) GetFieldIDs(client jira.Client) (map[FieldKey]string, error) {
-	m.Config.log.Debug("Collecting field IDs.")
+	log := m.Config.log
+	log.Debug("Collecting field IDs.")
 	req, err := client.NewRequest("GET", "/rest/api/2/field", nil)
 	if err != nil {
 		return map[FieldKey]string{}, err
@@ -255,7 +261,7 @@ func (m JsonFieldMapper) GetFieldIDs(client jira.Client) (map[FieldKey]string, e
 		return fieldIDs, errors.New("could not find ID of 'GitHub Issue Data' custom field; check that it is named correctly")
 	}
 
-	m.Config.log.Debug("All fields have been checked.")
+	log.Debug("All fields have been checked.")
 
 	return fieldIDs, nil
 }

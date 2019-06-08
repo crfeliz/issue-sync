@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/coreos/issue-sync/lib/models"
+	"github.com/coreos/issue-sync/lib/utils"
 	"time"
 
-	"github.com/cenkalti/backoff"
 	"github.com/coreos/issue-sync/cfg"
 	"github.com/google/go-github/github"
 	"golang.org/x/oauth2"
@@ -126,7 +126,7 @@ func getCurrentProjectCardAndCommitIds(g Client, timeout time.Duration, user str
 
 	// search for the current project card
 	for page := 1; page <= pages; page++ {
-		is, res, err := request(log, timeout, func() (interface{}, *github.Response, error) {
+		is, res, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 			return g.listIssueEvents(ctx, user, repoName, issue.GetNumber(), page)
 		})
 		if err != nil {
@@ -134,7 +134,7 @@ func getCurrentProjectCardAndCommitIds(g Client, timeout time.Duration, user str
 		}
 		issueEventPointers, ok := is.([]*github.IssueEvent)
 		if !ok {
-			log.Errorf("Get GitHub issue events did not return issue events! Got: %v", is)
+			log.Errorf("get GitHub issue events did not return issue events! Got: %v", is)
 			return nil, nil, fmt.Errorf("get GitHub issues events failed: expected []*github.IssueEvent; got %T", is)
 		}
 
@@ -151,7 +151,7 @@ func getCurrentProjectCardAndCommitIds(g Client, timeout time.Duration, user str
 				commitIds = append(commitIds, *v.CommitID)
 			}
 		}
-		pages = res.LastPage
+		pages = res.(*github.Response).LastPage
 	}
 
 	log.Debugf("Found current Project Card for issue #%d", issue.GetNumber())
@@ -170,7 +170,7 @@ func ListIssues(g Client, timeout time.Duration, user string, repoName string, s
 	var issues []models.ExtendedGithubIssue
 
 	for page := 1; page <= pages; page++ {
-		is, res, err := request(log, timeout, func() (interface{}, *github.Response, error) {
+		is, res, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 			return g.listByRepo(ctx, user, repoName, page, since)
 		})
 		if err != nil {
@@ -178,7 +178,7 @@ func ListIssues(g Client, timeout time.Duration, user string, repoName string, s
 		}
 		issuePointers, ok := is.([]*github.Issue)
 		if !ok {
-			log.Errorf("Get GitHub issues did not return issues! Got: %v", is)
+			log.Errorf("get GitHub issues did not return issues! Got: %v", is)
 			return nil, fmt.Errorf("get GitHub issues failed: expected []*github.Issue; got %T", is)
 		}
 
@@ -197,7 +197,7 @@ func ListIssues(g Client, timeout time.Duration, user string, repoName string, s
 			}
 		}
 
-		pages = res.LastPage
+		pages = res.(*github.Response).LastPage
 		issues = append(issues, issuePage...)
 	}
 
@@ -211,17 +211,17 @@ func ListIssues(g Client, timeout time.Duration, user string, repoName string, s
 func ListComments(g Client, timeout time.Duration, user string, repoName string, issue github.Issue) ([]*github.IssueComment, error) {
 	log := g.getLogger()
 	ctx := context.Background()
-	c, _, err := request(log, timeout, func() (interface{}, *github.Response, error) {
+	c, _, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 		return g.listComments(ctx, user, repoName, issue.GetNumber())
 	})
 	if err != nil {
-		log.Errorf("Error retrieving GitHub comments for issue #%d. Error: %v.", issue.GetNumber(), err)
+		log.Errorf("error retrieving GitHub comments for issue #%d. Error: %v.", issue.GetNumber(), err)
 		return nil, err
 	}
 	comments, ok := c.([]*github.IssueComment)
 	if !ok {
-		log.Errorf("Get GitHub comments did not return comments! Got: %v", c)
-		return nil, fmt.Errorf("Get GitHub comments failed: expected []*github.IssueComment; got %T", c)
+		log.Errorf("eet GitHub comments did not return comments! Got: %v", c)
+		return nil, fmt.Errorf("get GitHub comments failed: expected []*github.IssueComment; got %T", c)
 	}
 
 	return comments, nil
@@ -229,53 +229,21 @@ func ListComments(g Client, timeout time.Duration, user string, repoName string,
 
 // GetUser returns a GitHub user from its login.
 func GetUser(g Client, log logrus.Entry, timeout time.Duration, userName string) (github.User, error) {
-	u, _, err := request(log, timeout, func() (interface{}, *github.Response, error) {
+	u, _, err := utils.Retry(log, timeout, func() (interface{}, interface{}, error) {
 		return g.getUser(context.Background(), userName)
 	})
 
 	if err != nil {
-		log.Errorf("Error retrieving GitHub user %s. Error: %v", userName, err)
+		log.Errorf("error retrieving GitHub user %s. Error: %v", userName, err)
 	}
 
 	user, ok := u.(*github.User)
 	if !ok {
-		log.Errorf("Get GitHub user did not return user! Got: %v", u)
-		return github.User{}, fmt.Errorf("Get GitHub user failed: expected *github.User; got %T", u)
+		log.Errorf("eet GitHub user did not return user! Got: %v", u)
+		return github.User{}, fmt.Errorf("get GitHub user failed: expected *github.User; got %T", u)
 	}
 
 	return *user, nil
-}
-
-const retryBackoffRoundRatio = time.Millisecond / time.Nanosecond
-
-// request takes an API function from the GitHub library
-// and calls it with exponential backoff. If the function succeeds, it
-// returns the expected value and the GitHub API response, as well as a nil
-// error. If it continues to fail until a maximum time is reached, it returns
-// a nil result as well as the returned HTTP response and a timeout error.
-func request(log logrus.Entry, timeout time.Duration, f func() (interface{}, *github.Response, error)) (interface{}, *github.Response, error) {
-
-	var ret interface{}
-	var res *github.Response
-
-	op := func() error {
-		var err error
-		ret, res, err = f()
-		return err
-	}
-
-	b := backoff.NewExponentialBackOff()
-	b.MaxElapsedTime = timeout
-
-	backoffErr := backoff.RetryNotify(op, b, func(err error, duration time.Duration) {
-		// Round to a whole number of milliseconds
-		duration /= retryBackoffRoundRatio // Convert nanoseconds to milliseconds
-		duration *= retryBackoffRoundRatio // Convert back so it appears correct
-
-		log.Errorf("Error performing operation; retrying in %v: %v", duration, err)
-	})
-
-	return ret, res, backoffErr
 }
 
 // NewClient creates a Client and returns it; which

@@ -30,14 +30,14 @@ const defaultLogLevel = logrus.InfoLevel
 type FieldKey int
 
 const (
-	GitHubID       FieldKey = iota
-	GitHubNumber   FieldKey = iota
-	GitHubLabels   FieldKey = iota
-	GitHubStatus   FieldKey = iota
-	GitHubReporter FieldKey = iota
-	GitHubCommits  FieldKey = iota
-	LastISUpdate   FieldKey = iota
-	GitHubIssueData 	   FieldKey = iota
+	GitHubID        FieldKey = iota
+	GitHubNumber    FieldKey = iota
+	GitHubLabels    FieldKey = iota
+	GitHubStatus    FieldKey = iota
+	GitHubReporter  FieldKey = iota
+	GitHubCommits   FieldKey = iota
+	LastISUpdate    FieldKey = iota
+	GitHubIssueData FieldKey = iota
 )
 
 // Config is the root configuration object the application creates.
@@ -79,7 +79,10 @@ func NewConfig(cmd *cobra.Command) (Config, error) {
 	}
 
 	config.cmdConfig = *newViper("issue-sync", config.cmdFile)
-	config.cmdConfig.BindPFlags(cmd.Flags())
+	err = config.cmdConfig.BindPFlags(cmd.Flags())
+	if err != nil {
+		return Config{}, err
+	}
 
 	config.cmdFile = config.cmdConfig.ConfigFileUsed()
 
@@ -98,7 +101,14 @@ func (c *Config) LoadJIRAConfig(client jira.Client) error {
 	proj, res, err := client.Project.Get(c.cmdConfig.GetString("jira-project"))
 	if err != nil {
 		c.log.Errorf("Error retrieving JIRA project; check key and credentials. Error: %v", err)
-		defer res.Body.Close()
+
+		defer func() {
+			err := res.Body.Close()
+			if err != nil {
+				c.log.Error(err)
+			}
+		}()
+
 		body, err := ioutil.ReadAll(res.Body)
 		if err != nil {
 			c.log.Errorf("Error occured trying to read error body: %v", err)
@@ -109,7 +119,6 @@ func (c *Config) LoadJIRAConfig(client jira.Client) error {
 		return errors.New(string(body))
 	}
 	c.project = *proj
-
 
 	if c.cmdConfig.GetString("github-to-jira-field-mapper") == "json-field-mapper" {
 		c.fieldMapper = JsonFieldMapper{
@@ -162,12 +171,11 @@ func (c Config) IsDryRun() bool {
 
 // FullSyncAlways returns whether the application should rewrite the config file to set "since" to now or if it should
 // always do a full sync from the given sync. Full sync is required for GitHubProjectBoard -> Jira State syncing. This
-// is becuase moving a GitHub issue on the project board does not change the last updated time of the issue itself -
+// is because moving a GitHub issue on the project board does not change the last updated time of the issue itself -
 // only that of the project card.
 func (c Config) FullSyncAlways() bool {
 	return c.cmdConfig.GetBool("full-sync-always")
 }
-
 
 // IsDaemon returns whether the application is running as a daemon
 func (c Config) IsDaemon() bool {
@@ -229,19 +237,21 @@ func (c Config) SetJIRAToken(token *oauth1.Token) {
 
 // configFile is a serializable representation of the current Viper configuration.
 type configFile struct {
-	LogLevel    string        `json:"log-level" mapstructure:"log-level"`
-	GithubToken string        `json:"github-token" mapstructure:"github-token"`
-	JIRAUser    string        `json:"jira-user,omitempty" mapstructure:"jira-user"`
-	JIRAPass  	string        `json:"jira-pass,omitempty" mapstructure:"jira-pass"`
-	JIRAToken   string        `json:"jira-token,omitempty" mapstructure:"jira-token"`
-	JIRASecret  string        `json:"jira-secret,omitempty" mapstructure:"jira-secret"`
-	JIRAKey     string        `json:"jira-private-key-path,omitempty" mapstructure:"jira-private-key-path"`
-	JIRACKey    string        `json:"jira-consumer-key,omitempty" mapstructure:"jira-consumer-key"`
-	RepoName    string        `json:"repo-name" mapstructure:"repo-name"`
-	JIRAURI     string        `json:"jira-uri" mapstructure:"jira-uri"`
-	JIRAProject string        `json:"jira-project" mapstructure:"jira-project"`
-	Since       string        `json:"since" mapstructure:"since"`
-	Timeout     time.Duration `json:"timeout" mapstructure:"timeout"`
+	LogLevel                string        `json:"log-level" mapstructure:"log-level"`
+	GithubToken             string        `json:"github-token" mapstructure:"github-token"`
+	JIRAUser                string        `json:"jira-user,omitempty" mapstructure:"jira-user"`
+	JIRAPass                string        `json:"jira-pass,omitempty" mapstructure:"jira-pass"`
+	JIRAToken               string        `json:"jira-token,omitempty" mapstructure:"jira-token"`
+	JIRASecret              string        `json:"jira-secret,omitempty" mapstructure:"jira-secret"`
+	JIRAKey                 string        `json:"jira-private-key-path,omitempty" mapstructure:"jira-private-key-path"`
+	JIRACKey                string        `json:"jira-consumer-key,omitempty" mapstructure:"jira-consumer-key"`
+	RepoName                string        `json:"repo-name" mapstructure:"repo-name"`
+	JIRAURI                 string        `json:"jira-uri" mapstructure:"jira-uri"`
+	JIRAProject             string        `json:"jira-project" mapstructure:"jira-project"`
+	Since                   string        `json:"since" mapstructure:"since"`
+	Timeout                 time.Duration `json:"timeout" mapstructure:"timeout"`
+	FullSyncAlways          bool          `json:"full-sync-always" mapstructure:"full-sync-always"`
+	GitHubToJiraFieldMapper string        `json:"json-field-mapper" mapstructure:"json-field-mapper"`
 }
 
 // SaveConfig updates the `since` parameter to now, then saves the configuration file.
@@ -262,9 +272,18 @@ func (c *Config) SaveConfig() error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
 
-	f.WriteString(string(b))
+	defer func() {
+		err := f.Close()
+		if err != nil {
+			c.log.Error(err)
+		}
+	}()
+
+	_, err = f.WriteString(string(b))
+	if err != nil {
+		c.log.Error(err)
+	}
 
 	return nil
 }

@@ -58,13 +58,24 @@ func CompareComments(config cfg.Config, ghIssue github.Issue, jIssue jira.Issue,
 			}
 			// matches[0] is the whole string, matches[1] is the ID
 			matches := jCommentIDRegex.FindStringSubmatch(jComment.Body)
-			id, _ := strconv.ParseInt(matches[1], 10, 64)
+			id, err := strconv.ParseInt(matches[1], 10, 64)
+
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+
 			if *ghComment.ID != id {
 				continue
 			}
+
 			found = true
 
-			UpdateComment(config, *ghComment, jComment, jIssue, ghClient, jClient)
+			err = UpdateComment(config, *ghComment, jComment, jIssue, ghClient, jClient)
+			if err != nil {
+				log.Error(err)
+			}
+
 			break
 		}
 		if found {

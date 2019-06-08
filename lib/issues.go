@@ -7,6 +7,7 @@ import (
 	"github.com/coreos/issue-sync/lib/issuesyncgithub"
 	"github.com/coreos/issue-sync/lib/issuesyncjira"
 	"github.com/coreos/issue-sync/lib/models"
+	"github.com/coreos/issue-sync/lib/utils"
 	"strings"
 )
 
@@ -46,7 +47,13 @@ func CompareIssues(config cfg.Config, ghClient issuesyncgithub.Client, jiraClien
 		found := false
 		for _, jIssue := range jiraIssues {
 
-			id, _ := config.GetFieldMapper().GetFieldValue(&jIssue, cfg.GitHubID)
+			id, err := config.GetFieldMapper().GetFieldValue(&jIssue, cfg.GitHubID)
+
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+
 			if int64(*ghIssue.ID) == id.(int64) {
 				found = true
 				if err := UpdateIssue(config, ghIssue, jIssue, ghClient, jiraClient,); err != nil {
@@ -82,36 +89,6 @@ func jiraCustomFieldsNeedUpdate(config cfg.Config, jIssue jira.Issue, fieldKey c
 	}
 }
 
-func sliceStringsEq(a []string, b []string) bool {
-
-	var aa []string
-	var bb []string
-
-	if a == nil {
-		aa = make([]string, 0)
-	} else {
-		aa = a
-	}
-
-	if b == nil {
-		bb = make([]string, 0)
-	} else {
-		bb = b
-	}
-
-	if len(aa) != len(bb) {
-		return false
-	}
-
-	for i := range aa {
-		if aa[i] != bb[i] {
-			return false
-		}
-	}
-
-	return true
-}
-
 // DidIssueChange tests each of the relevant fields on the provided JIRA and GitHub issue
 // and returns whether or not they differ.
 func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue jira.Issue) bool {
@@ -126,18 +103,19 @@ func DidIssueChange(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssu
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubStatus, ghIssue.GetState())
 	anyDifferent = anyDifferent || jiraCustomFieldsNeedUpdate(config, jIssue, cfg.GitHubReporter, ghIssue.User.GetLogin())
 	commits, err := config.GetFieldMapper().GetFieldValue(&jIssue, cfg.GitHubCommits)
-	commitIdsInJiraUntyped := commits.([]interface{})
 
 	if err != nil {
+		log.Error(err)
 		return true
 	}
 
+	commitIdsInJiraUntyped := commits.([]interface{})
 	commitIdsInJira := make([]string, len(commitIdsInJiraUntyped))
 	for i, v := range commitIdsInJiraUntyped {
 		commitIdsInJira[i] = fmt.Sprint(v)
 	}
 
-	anyDifferent = anyDifferent || !sliceStringsEq(commitIdsInJira, ghIssue.CommitIds)
+	anyDifferent = anyDifferent || !utils.SliceStringsEq(commitIdsInJira, ghIssue.CommitIds)
 	ghLabels := make([]string, len(ghIssue.Labels))
 	for i, l := range ghIssue.Labels {
 		ghLabels[i] = *l.Name
@@ -162,15 +140,17 @@ func UpdateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, jIssue j
 	var issue jira.Issue
 
 	if DidIssueChange(config, ghIssue, jIssue) {
-		fields := config.GetFieldMapper().MapFields(&ghIssue)
+		fields, err := config.GetFieldMapper().MapFields(&ghIssue)
+
+		if err != nil {
+			return err
+		}
 
 		issue = jira.Issue{
 			Fields: &fields,
 			Key:    jIssue.Key,
 			ID:     jIssue.ID,
 		}
-
-		var err error
 
 		if ghIssue.ProjectCard != nil {
 			err = issuesyncjira.TryApplyTransitionWithStatusName(jClient, jIssue, ghIssue.ProjectCard.GetColumnName())
@@ -209,13 +189,17 @@ func CreateIssue(config cfg.Config, ghIssue models.ExtendedGithubIssue, ghClient
 
 	log.Debugf("Creating JIRA issue based on GitHub issue #%d", *ghIssue.Issue.Number)
 
-	fields := config.GetFieldMapper().MapFields(&ghIssue)
+	fields, err := config.GetFieldMapper().MapFields(&ghIssue)
+
+	if err != nil {
+		return err
+	}
 
 	jIssue := jira.Issue{
 		Fields: &fields,
 	}
 
-	jIssue, err := issuesyncjira.CreateIssue(jClient, config.GetTimeout(), jIssue)
+	jIssue, err = issuesyncjira.CreateIssue(jClient, config.GetTimeout(), jIssue)
 	if err != nil {
 		return err
 	}

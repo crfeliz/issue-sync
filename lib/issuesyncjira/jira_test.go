@@ -60,9 +60,13 @@ func TestTryApplyTransitionWithName(t *testing.T) {
 	client.handleGetTransitions = func(issue jira.Issue) (transitions []jira.Transition, response *jira.Response, e error) {
 		transitions = make([]jira.Transition, 3)
 		for i := 0; i < len(transitions); i++ {
-			transitions[i] = jira.Transition{Name:fmt.Sprintf("Transition_%d", i)}
+			transitions[i] = jira.Transition{To: jira.Status{Name:fmt.Sprintf("Transition_%d", i)}}
 		}
 		return transitions, &jira.Response{}, nil
+	}
+
+	client.handleApplyTransition = func(issue jira.Issue, transition jira.Transition) (response *jira.Response, e error) {
+		return &jira.Response{}, nil
 	}
 
 	err := TryApplyTransitionWithStatusName(client, issue, "Transition_2")
