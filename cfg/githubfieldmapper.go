@@ -67,7 +67,7 @@ func (m DefaultFieldMapper) GetFieldValue(jIssue *jira.Issue, fieldKey FieldKey)
 func (m DefaultFieldMapper) MapFields(issue *models.ExtendedGithubIssue) (jira.IssueFields, error) {
 	fields := jira.IssueFields{
 		Type: jira.IssueType{
-			Name: "Task", // TODO: Decide on issue type
+			Name: "Improvement", // TODO: Decide on issue type
 		},
 		Project:     m.Config.GetProject(),
 		Summary:     issue.GetTitle(),
