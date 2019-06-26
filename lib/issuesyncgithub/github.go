@@ -266,6 +266,7 @@ func NewClient(config cfg.Config) (Client, error) {
 
 	ret = realGHClient{
 		client: *client,
+		log: log,
 	}
 
 	// Make a request so we can check that we can connect fine.
