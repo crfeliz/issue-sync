@@ -341,10 +341,13 @@ func NewClient(config *cfg.Config) (Client, error) {
 		j = dryrunJIRAClient{
 			log: config.GetLogger(),
 			client: *client,
+			fieldMapper: config.GetFieldMapper(),
 		}
 	} else {
 		j = realJIRAClient{
 			client: *client,
+			log: config.GetLogger(),
+			fieldMapper: config.GetFieldMapper(),
 		}
 	}
 
