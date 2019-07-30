@@ -10,9 +10,9 @@ script = this
 
 bootstrap(script) {
     // Git URL
-    gitConfig.gitUrl = "git@code.corp.indeed.com:cfeliz/issue-sync.git"
+    gitConfig.gitUrl = "git@code.corp.indeed.com:OpenSourceProgram/issue-sync.git"
     // Main development branch. Note: if you put develop here, master will be ignored by the pipeline.
-    gitConfig.gitBranch = "indeed-release"
+    gitConfig.gitBranch = "master"
     
     // JIRA project where deploy tickets should be created
     jiraConfig.jiraProjectKey = "OSST"
