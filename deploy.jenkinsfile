@@ -61,36 +61,19 @@ buildPipeline(script) {
         sshagent(["gitlab_jenkins_ssh"]) {
             sh "/usr/local/bin/container-startup-without-sleep"
             sh "bash -c '" +
-               "rm -rf ./jenkies; " +
-               "git clone git@code.corp.indeed.com:gophers/jenkies.git; " +
-               "npm install;" +
-               "./jenkies/build-jenkins-pipeline.sh -d -t -b -m; " +
-               "'"
+                "rm -rf ./jenkies; " +
+                "git clone git@code.corp.indeed.com:gophers/jenkies.git; " +
+                "./jenkies/build-jenkins-pipeline.sh -d -t -b -m; " +
+                "'"
         }
-        stash name: "tarball", includes: buildConfig.deployablePath
     }
 
-    stage("Build and push image") {
-        final String REVISION_TAG = "build-" + buildDetails.validGitCommit.substring(0, 8) + "-" + buildDetails.validDeployTimeString;
-        echo "Publishing image with revision tags: latest, ${REVISION_TAG}"
-        buildAndPushImageToQARegistry(
-            gitUrl: "git@code.corp.indeed.com:cfeliz/issue-sync.git",
-            gitBranch: "indeed-release",
-            imageName: "tst-pushregistry1:443/qa/apps/devops/penelope/penelope",
-            imageTags: ["latest", REVISION_TAG],
-            dockerfilePath: "./Dockerfile",
-            useCache: false,
-            setupSteps: {
-                unstash name: "tarball"
-            },
-            script,
-        )
+
+
+    // Deploy to QA/Stage
+
+    deployToQa(script) {
+        uploadToArc(script)
     }
-
-    approveDeploy(deployEnv: "QA", alwaysDoUserInput: true, script)
-
-    uploadToArc(script)
-    
-    checkQaVersion(script)
 }
 
