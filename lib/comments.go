@@ -8,7 +8,7 @@ import (
 
 	"github.com/andygrunwald/go-jira"
 	"github.com/coreos/issue-sync/cfg"
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v28/github"
 )
 
 // jCommentRegex matches a generated JIRA comment. It has matching groups to retrieve the

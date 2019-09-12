@@ -15,7 +15,7 @@ import (
 	"github.com/andygrunwald/go-jira"
 	"github.com/coreos/issue-sync/cfg"
 	"github.com/coreos/issue-sync/lib/utils"
-	"github.com/google/go-github/github"
+	"github.com/google/go-github/v28/github"
 )
 
 // commentDateFormat is the format used in the headers of JIRA comments.
@@ -200,7 +200,7 @@ func (j dryrunJIRAClient) applyTransition(issue jira.Issue, transition jira.Tran
 	log.Infof("  Jira Issue ID: %s", issue.ID)
 	log.Infof("  Transition Id: %s", transition.ID)
 	log.Infof("  Old Status: %s", issue.Fields.Status.Name)
-	log.Infof("  New Satus: %s", transition.To.Name)
+	log.Infof("  New Satus: %s", transition.Name)
 	log.Info("")
 	return nil, nil
 }

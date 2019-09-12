@@ -1,9 +1,10 @@
 package cmd
 
 import (
+	"time"
+
 	"github.com/coreos/issue-sync/lib/issuesyncgithub"
 	"github.com/coreos/issue-sync/lib/issuesyncjira"
-	"time"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/coreos/issue-sync/cfg"
