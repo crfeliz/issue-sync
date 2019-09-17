@@ -3,7 +3,7 @@ package issuesyncgithub
 import (
 	"context"
 	"github.com/Sirupsen/logrus"
-	"github.com/coreos/issue-sync/cfg"
+	"github.com/indeedeng/issue-sync/cfg"
 	"github.com/google/go-github/github"
 	"testing"
 	"time"

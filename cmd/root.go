@@ -3,12 +3,12 @@ package cmd
 import (
 	"time"
 
-	"github.com/coreos/issue-sync/lib/issuesyncgithub"
-	"github.com/coreos/issue-sync/lib/issuesyncjira"
+	"github.com/indeedeng/issue-sync/lib/issuesyncgithub"
+	"github.com/indeedeng/issue-sync/lib/issuesyncjira"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/coreos/issue-sync/cfg"
-	"github.com/coreos/issue-sync/lib"
+	"github.com/indeedeng/issue-sync/cfg"
+	"github.com/indeedeng/issue-sync/lib"
 	"github.com/spf13/cobra"
 )
 

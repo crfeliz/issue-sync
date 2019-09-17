@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"github.com/Sirupsen/logrus"
 	"github.com/andygrunwald/go-jira"
-	"github.com/coreos/issue-sync/cfg"
+	"github.com/indeedeng/issue-sync/cfg"
 	"testing"
 )
 

@@ -3,11 +3,11 @@ package lib
 import (
 	"fmt"
 	"github.com/andygrunwald/go-jira"
-	"github.com/coreos/issue-sync/cfg"
-	"github.com/coreos/issue-sync/lib/issuesyncgithub"
-	"github.com/coreos/issue-sync/lib/issuesyncjira"
-	"github.com/coreos/issue-sync/lib/models"
-	"github.com/coreos/issue-sync/lib/utils"
+	"github.com/indeedeng/issue-sync/cfg"
+	"github.com/indeedeng/issue-sync/lib/issuesyncgithub"
+	"github.com/indeedeng/issue-sync/lib/issuesyncjira"
+	"github.com/indeedeng/issue-sync/lib/models"
+	"github.com/indeedeng/issue-sync/lib/utils"
 	"strings"
 )
 

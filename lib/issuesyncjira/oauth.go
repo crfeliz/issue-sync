@@ -12,7 +12,7 @@ import (
 	"io/ioutil"
 	"os"
 
-	"github.com/coreos/issue-sync/cfg"
+	"github.com/indeedeng/issue-sync/cfg"
 	"github.com/dghubble/oauth1"
 )
 
