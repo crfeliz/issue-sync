@@ -1,4 +1,4 @@
-module github.com/coreos/issue-sync
+module github.com/indeedeng/issue-sync
 
 go 1.12
 
