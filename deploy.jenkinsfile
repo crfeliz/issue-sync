@@ -57,18 +57,11 @@ bootstrap(script) {
 }
 
 buildPipeline(script) {
-    createDeployable(script) {
-        sshagent(["gitlab_jenkins_ssh"]) {
-            sh "/usr/local/bin/container-startup-without-sleep"
-            sh "bash -c '" +
-                "rm -rf ./jenkies; " +
-                "git clone git@code.corp.indeed.com:gophers/jenkies.git; " +
-                "./jenkies/build-jenkins-pipeline.sh -d -t -b -m; " +
-                "'"
+    withEnv(["GO111MODULE=on", "GOPROXY=https://modprox-proxy.corp.indeed.com/"]) {
+        createDeployable(script, sourceFileResolverLevel: 'STORE_ALL_BUILD') {
+            jankyDeployable(script)
         }
     }
-
-
 
     // Deploy to QA/Stage
 
@@ -76,4 +69,3 @@ buildPipeline(script) {
         uploadToArc(script)
     }
 }
-
