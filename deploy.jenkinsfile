@@ -1,5 +1,8 @@
 #!/usr/bin/env groovy
-@Library("pipeline@release/2.x") _
+@Library([
+        'pipeline@release/2.x',
+        'janky@v0.0.7',
+]) _
 
 /**
  * This file tells Pipeline Jenkins how to build and deploy the project.
