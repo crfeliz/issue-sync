@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/andygrunwald/go-jira"
-	"github.com/indeedeng/issue-sync/lib/models"
+	"github.com/coreos/issue-sync/lib/models"
 	"strings"
 	"time"
 )

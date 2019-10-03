@@ -1,13 +1,13 @@
 package lib
 
 import (
-	"github.com/indeedeng/issue-sync/lib/issuesyncgithub"
-	"github.com/indeedeng/issue-sync/lib/issuesyncjira"
+	"github.com/coreos/issue-sync/lib/issuesyncgithub"
+	"github.com/coreos/issue-sync/lib/issuesyncjira"
 	"regexp"
 	"strconv"
 
 	"github.com/andygrunwald/go-jira"
-	"github.com/indeedeng/issue-sync/cfg"
+	"github.com/coreos/issue-sync/cfg"
 	"github.com/google/go-github/v28/github"
 )
 

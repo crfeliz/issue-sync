@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 	"github.com/Sirupsen/logrus"
-	"github.com/indeedeng/issue-sync/lib/models"
-	"github.com/indeedeng/issue-sync/lib/utils"
+	"github.com/coreos/issue-sync/lib/models"
+	"github.com/coreos/issue-sync/lib/utils"
 	"time"
 
-	"github.com/indeedeng/issue-sync/cfg"
+	"github.com/coreos/issue-sync/cfg"
 	"github.com/google/go-github/v28/github"
 	"golang.org/x/oauth2"
 )

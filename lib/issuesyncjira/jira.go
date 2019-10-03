@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/Sirupsen/logrus"
-	"github.com/indeedeng/issue-sync/lib/issuesyncgithub"
+	"github.com/coreos/issue-sync/lib/issuesyncgithub"
 	"io/ioutil"
 	"net/http"
 	"regexp"
@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"github.com/andygrunwald/go-jira"
-	"github.com/indeedeng/issue-sync/cfg"
-	"github.com/indeedeng/issue-sync/lib/utils"
+	"github.com/coreos/issue-sync/cfg"
+	"github.com/coreos/issue-sync/lib/utils"
 	"github.com/google/go-github/v28/github"
 )
 
